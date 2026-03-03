@@ -1,6 +1,11 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  experimental: {
+    // Bulk media upload jde přes /api/upload/media; default clone limit 10 MB nestačí.
+    proxyClientMaxBodySize: "200mb",
+    middlewareClientMaxBodySize: "200mb",
+  },
   images: {
     remotePatterns: [
       {

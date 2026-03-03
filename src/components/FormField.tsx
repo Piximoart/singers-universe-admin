@@ -39,7 +39,13 @@ interface ToggleProps extends BaseProps {
   onChange: (value: boolean) => void;
 }
 
-type FormFieldProps = InputProps | TextareaProps | SelectProps | ToggleProps;
+interface ColorProps extends BaseProps {
+  type: "color";
+  value: string;
+  onChange: (value: string) => void;
+}
+
+type FormFieldProps = InputProps | TextareaProps | SelectProps | ToggleProps | ColorProps;
 
 export default function FormField(props: FormFieldProps) {
   const inputClass =
@@ -95,6 +101,30 @@ export default function FormField(props: FormFieldProps) {
             />
           </button>
           <span className="text-sm text-sub">{props.value ? "Ano" : "Ne"}</span>
+        </div>
+      ) : props.type === "color" ? (
+        <div className="flex items-center gap-2">
+          <div className="relative shrink-0">
+            <div
+              className="w-10 h-10 rounded-md border border-white/10 cursor-pointer"
+              style={{ backgroundColor: props.value || "#000000" }}
+            />
+            <input
+              type="color"
+              value={props.value || "#000000"}
+              onChange={(e) => props.onChange(e.target.value)}
+              className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+            />
+          </div>
+          <input
+            type="text"
+            name={props.name}
+            value={props.value}
+            onChange={(e) => props.onChange(e.target.value)}
+            placeholder="#000000"
+            required={props.required}
+            className={cn(inputClass, "font-mono uppercase")}
+          />
         </div>
       ) : (
         <input

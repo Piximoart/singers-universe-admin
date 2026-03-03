@@ -19,9 +19,12 @@ const s3 = new S3Client({
 const BUCKET_PUBLIC = process.env.S3_BUCKET_PUBLIC || "singers-universe-public";
 const BUCKET_PRIVATE =
   process.env.S3_BUCKET_PRIVATE || "singers-universe-private";
+const S3_ENDPOINT_RESOLVED =
+  process.env.S3_ENDPOINT || "https://eu-central-2.storage.impossibleapi.net";
+
 const PUBLIC_BASE_URL =
   process.env.PUBLIC_STORAGE_BASE_URL ||
-  `${process.env.S3_ENDPOINT}/${BUCKET_PUBLIC}`;
+  `${S3_ENDPOINT_RESOLVED}/${BUCKET_PUBLIC}`;
 
 /**
  * Nahraje obrázek přímo z bufferu do public bucketu.

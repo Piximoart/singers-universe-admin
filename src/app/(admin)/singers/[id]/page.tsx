@@ -210,15 +210,15 @@ export default function EditSingerPage() {
 
           <div className="grid grid-cols-2 gap-4">
             <FormField
-              type="text"
-              label="Avatar barva (hex)"
+              type="color"
+              label="Avatar barva"
               name="avatar_hex_color"
               value={form.avatar_hex_color}
               onChange={(v) => set("avatar_hex_color", v)}
             />
             <FormField
-              type="text"
-              label="Cover barva (hex)"
+              type="color"
+              label="Cover barva"
               name="cover_hex_color"
               value={form.cover_hex_color}
               onChange={(v) => set("cover_hex_color", v)}

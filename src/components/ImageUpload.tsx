@@ -31,6 +31,10 @@ export default function ImageUpload({
     setError("");
     setLoading(true);
 
+    // Okamžitý lokální preview — nezávisí na serveru
+    const localUrl = URL.createObjectURL(file);
+    setPreview(localUrl);
+
     try {
       const formData = new FormData();
       formData.append("file", file);
@@ -44,6 +48,7 @@ export default function ImageUpload({
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Upload selhal");
 
+      URL.revokeObjectURL(localUrl);
       setPreview(data.url);
       onUpload(data.url);
     } catch (err) {

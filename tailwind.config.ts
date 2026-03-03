@@ -10,7 +10,7 @@ export default {
         s2: "#161616",
         s3: "#1E1E1E",
         s4: "#252525",
-        border: "#2A2A2A",
+        border: "transparent",
         lime: "#C4CDD8",
         "lime-dim": "#C4CDD860",
         sub: "#737373",

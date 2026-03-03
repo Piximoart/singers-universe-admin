@@ -23,10 +23,10 @@ export default function DataTable<T extends { id: string }>({
   emptyMessage = "Žádné záznamy",
 }: DataTableProps<T>) {
   return (
-    <div className="bg-s1 border border-border rounded-lg overflow-hidden">
+    <div className="bg-s1 rounded-lg overflow-hidden">
       <table className="w-full text-sm">
         <thead>
-          <tr className="border-b border-border">
+          <tr className="border-b border-white/5">
             {columns.map((col) => (
               <th
                 key={col.key}
@@ -56,7 +56,7 @@ export default function DataTable<T extends { id: string }>({
             rows.map((row) => (
               <tr
                 key={row.id}
-                className="border-b border-border last:border-0 hover:bg-s2 transition-colors"
+                className="border-b border-white/5 last:border-0 hover:bg-s2 transition-colors"
               >
                 {columns.map((col) => (
                   <td key={col.key} className="px-4 py-3 text-white">

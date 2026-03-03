@@ -43,7 +43,7 @@ type FormFieldProps = InputProps | TextareaProps | SelectProps | ToggleProps;
 
 export default function FormField(props: FormFieldProps) {
   const inputClass =
-    "w-full bg-s2 border border-border rounded-md px-3 py-2.5 text-sm text-white placeholder:text-sub focus:outline-none focus:border-lime transition-colors";
+    "w-full bg-s2 border border-white/10 rounded-md px-3 py-2.5 text-sm text-white placeholder:text-sub focus:outline-none focus:border-lime transition-colors";
 
   return (
     <div className={cn("space-y-1.5", props.className)}>

@@ -14,6 +14,12 @@ export async function GET() {
 
 export async function POST(request: NextRequest) {
   const body = await request.json();
+  if (!body?.singer_id || typeof body.singer_id !== "string" || !body.singer_id.trim()) {
+    return NextResponse.json(
+      { error: "Track musí mít vybraného zpěváka / influencera." },
+      { status: 400 },
+    );
+  }
 
   const { data, error } = await supabaseAdmin
     .from("tracks")

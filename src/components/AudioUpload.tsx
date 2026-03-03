@@ -10,6 +10,8 @@ interface AudioUploadProps {
   onUpload: (url: string) => void;
   uploadKey: string; // např. "audio/vexa-neon-lights.mp3"
   isPrivate?: boolean;
+  uploadEnabled?: boolean;
+  uploadLockReason?: string;
   hint?: string;
 }
 
@@ -19,6 +21,8 @@ export default function AudioUpload({
   onUpload,
   uploadKey,
   isPrivate = true,
+  uploadEnabled = true,
+  uploadLockReason,
   hint,
 }: AudioUploadProps) {
   const [fileName, setFileName] = useState<string | null>(
@@ -38,25 +42,13 @@ export default function AudioUpload({
     setFileName(file.name);
 
     try {
-      // 1) Získat presigned PUT URL
-      const presignRes = await fetch("/api/upload/presign", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          key: uploadKey,
-          contentType: file.type || "audio/mpeg",
-          isPrivate,
-        }),
-      });
-
-      const presignData = await presignRes.json();
-      if (!presignRes.ok) throw new Error(presignData.error || "Presign selhal");
-
-      const { url: presignedUrl, publicUrl } = presignData;
-
-      // 2) Nahrát přímo na S3 s progress barem
+      // Upload přes server-side API (bez CORS problémů z browseru)
       await new Promise<void>((resolve, reject) => {
         const xhr = new XMLHttpRequest();
+        const body = new FormData();
+        body.append("file", file);
+        body.append("key", uploadKey);
+        body.append("isPrivate", String(isPrivate));
 
         xhr.upload.addEventListener("progress", (e) => {
           if (e.lengthComputable) {
@@ -65,7 +57,22 @@ export default function AudioUpload({
         });
 
         xhr.addEventListener("load", () => {
-          if (xhr.status >= 200 && xhr.status < 300) {
+          if (xhr.status >= 200 && xhr.status < 300 && xhr.responseText) {
+            try {
+              const payload = JSON.parse(xhr.responseText) as {
+                storedUrl?: string;
+                mediaUrl?: string;
+              };
+              const storedUrl = payload.storedUrl || payload.mediaUrl;
+              if (!storedUrl) {
+                reject(new Error("Upload nevrátil media URL"));
+                return;
+              }
+              onUpload(storedUrl);
+            } catch {
+              reject(new Error("Neplatná odpověď upload API"));
+              return;
+            }
             resolve();
           } else {
             reject(new Error(`Upload selhal: ${xhr.status}`));
@@ -74,13 +81,11 @@ export default function AudioUpload({
 
         xhr.addEventListener("error", () => reject(new Error("Upload selhal")));
 
-        xhr.open("PUT", presignedUrl);
-        xhr.setRequestHeader("Content-Type", file.type || "audio/mpeg");
-        xhr.send(file);
+        xhr.open("POST", "/api/upload/media");
+        xhr.send(body);
       });
 
       setDone(true);
-      onUpload(publicUrl);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Upload selhal");
       setFileName(null);
@@ -95,10 +100,11 @@ export default function AudioUpload({
       <label className="block text-sm font-medium text-white">{label}</label>
 
       <div
-        onClick={() => !loading && inputRef.current?.click()}
+        onClick={() => !loading && uploadEnabled && inputRef.current?.click()}
         className={cn(
           "border border-dashed border-border rounded-lg bg-s2 px-4 py-4 cursor-pointer hover:border-sub transition-colors",
-          loading && "cursor-wait opacity-70"
+          loading && "cursor-wait opacity-70",
+          !uploadEnabled && "cursor-not-allowed opacity-60"
         )}
       >
         {loading ? (
@@ -135,7 +141,11 @@ export default function AudioUpload({
         ) : (
           <div className="flex items-center gap-2 text-sm text-sub">
             <Music size={16} strokeWidth={1.5} />
-            <span>Kliknout a nahrát audio soubor</span>
+            <span>
+              {uploadEnabled
+                ? "Kliknout a nahrát audio soubor"
+                : uploadLockReason || "Nejdřív vyberte zpěváka / influencera"}
+            </span>
           </div>
         )}
       </div>
@@ -145,6 +155,7 @@ export default function AudioUpload({
         type="file"
         accept="audio/mpeg,audio/wav,audio/flac,audio/ogg,audio/aac,audio/x-m4a,audio/mp4,audio/aiff,audio/x-aiff,audio/opus,video/mp4,video/quicktime,video/webm,audio/*,video/*"
         className="hidden"
+        disabled={!uploadEnabled}
         onChange={(e) => {
           const file = e.target.files?.[0];
           if (file) handleFile(file);
@@ -153,6 +164,11 @@ export default function AudioUpload({
       />
 
       {hint && <p className="text-xs text-sub">{hint}</p>}
+      {!uploadEnabled && (
+        <p className="text-xs text-red-400">
+          {uploadLockReason || "Nejdřív vyberte zpěváka / influencera."}
+        </p>
+      )}
       {error && <p className="text-xs text-red-400">{error}</p>}
     </div>
   );

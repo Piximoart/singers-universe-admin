@@ -10,7 +10,6 @@ import {
   AlertCircle,
   Music,
   Film,
-  Image as ImageIcon,
   Loader2,
 } from "lucide-react";
 import { cn } from "@/lib/cn";
@@ -18,7 +17,7 @@ import { cn } from "@/lib/cn";
 // ─── Typy ────────────────────────────────────────────────────────────────────
 
 type FileStatus = "pending" | "uploading" | "done" | "error";
-type MediaType = "audio" | "video" | "image";
+type MediaType = "audio" | "video";
 
 interface BulkFile {
   id: string;
@@ -51,12 +50,11 @@ function detectMediaType(file: File): MediaType {
   const t = file.type;
   if (t.startsWith("audio/")) return "audio";
   if (t.startsWith("video/")) return "video";
-  if (t.startsWith("image/")) return "image";
   // fallback z přípony
   const ext = file.name.split(".").pop()?.toLowerCase() ?? "";
   if (["mp3", "wav", "flac", "ogg", "aac", "m4a", "aiff", "opus"].includes(ext)) return "audio";
   if (["mp4", "mov", "webm", "avi", "mkv"].includes(ext)) return "video";
-  return "audio";
+  throw new Error("Nepodporovaný typ souboru");
 }
 
 function fileId() {
@@ -66,7 +64,6 @@ function fileId() {
 const MEDIA_ICONS: Record<MediaType, typeof Music> = {
   audio: Music,
   video: Film,
-  image: ImageIcon,
 };
 
 const ACCEPT = [
@@ -74,8 +71,7 @@ const ACCEPT = [
   "audio/aac", "audio/x-m4a", "audio/mp4", "audio/aiff",
   "audio/x-aiff", "audio/opus",
   "video/mp4", "video/quicktime", "video/webm",
-  "image/jpeg", "image/png", "image/webp",
-  "audio/*", "video/*", "image/*",
+  "audio/*", "video/*",
 ].join(",");
 
 // ─── Concurrent upload worker ─────────────────────────────────────────────────
@@ -85,41 +81,49 @@ async function uploadFile(
   singerId: string,
   onProgress: (id: string, pct: number) => void,
 ): Promise<{ mediaUrl: string }> {
-  const ext = bf.file.name.split(".").pop() ?? "mp3";
-  const isPrivate = bf.mediaType !== "image";
-  const key =
-    bf.mediaType === "image"
-      ? `covers/${bf.slug}.${ext}`
-      : `${bf.mediaType}/${singerId}/${bf.slug}.${ext}`;
+  const fallbackExt = bf.mediaType === "video" ? "mp4" : "mp3";
+  const ext = bf.file.name.split(".").pop() ?? fallbackExt;
+  const key = `${bf.mediaType}/${singerId}/${bf.slug}.${ext}`;
 
-  // 1) Presign
-  const presignRes = await fetch("/api/upload/presign", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ key, contentType: bf.file.type || "audio/mpeg", isPrivate }),
-  });
-  const presignData = await presignRes.json();
-  if (!presignRes.ok) throw new Error(presignData.error || "Presign selhal");
-
-  const { url: presignedUrl, publicUrl } = presignData;
-
-  // 2) PUT na S3 s progress
+  // Upload přes server-side API (bez CORS preflightů v browseru)
+  let uploadedMediaUrl: string | null = null;
   await new Promise<void>((resolve, reject) => {
     const xhr = new XMLHttpRequest();
+    const body = new FormData();
+    body.append("file", bf.file);
+    body.append("key", key);
+    body.append("isPrivate", "true");
+
     xhr.upload.addEventListener("progress", (e) => {
       if (e.lengthComputable) onProgress(bf.id, Math.round((e.loaded / e.total) * 100));
     });
     xhr.addEventListener("load", () => {
-      if (xhr.status >= 200 && xhr.status < 300) resolve();
-      else reject(new Error(`Upload selhal: ${xhr.status}`));
+      if (xhr.status >= 200 && xhr.status < 300 && xhr.responseText) {
+        try {
+          const payload = JSON.parse(xhr.responseText) as {
+            mediaUrl?: string;
+            storedUrl?: string;
+          };
+          uploadedMediaUrl = payload.mediaUrl || payload.storedUrl || null;
+          if (!uploadedMediaUrl) {
+            reject(new Error("Upload nevrátil media URL"));
+            return;
+          }
+          resolve();
+        } catch {
+          reject(new Error("Neplatná odpověď upload API"));
+        }
+        return;
+      }
+
+      reject(new Error(`Upload selhal: ${xhr.status}`));
     });
     xhr.addEventListener("error", () => reject(new Error("Síťová chyba")));
-    xhr.open("PUT", presignedUrl);
-    xhr.setRequestHeader("Content-Type", bf.file.type || "audio/mpeg");
-    xhr.send(bf.file);
+    xhr.open("POST", "/api/upload/media");
+    xhr.send(body);
   });
 
-  return { mediaUrl: publicUrl };
+  return { mediaUrl: uploadedMediaUrl ?? "" };
 }
 
 // ─── Komponenta ───────────────────────────────────────────────────────────────
@@ -167,20 +171,48 @@ export default function BulkUploadPage() {
 
   // Přidat soubory ze seznamu
   function addFiles(newFiles: FileList | File[]) {
+    if (!singerId) {
+      setGlobalError("Nejdřív vyberte zpěváka / influencera.");
+      return;
+    }
+
     const arr = Array.from(newFiles).slice(0, 50 - files.length);
+    const rejected: string[] = [];
+    const mapped: BulkFile[] = [];
+
+    for (const f of arr) {
+      try {
+        mapped.push({
+          id: fileId(),
+          file: f,
+          title: fileTitle(f.name),
+          slug: autoSlug(f.name),
+          mediaType: detectMediaType(f),
+          status: "pending",
+          progress: 0,
+          mediaUrl: null,
+          error: null,
+        });
+      } catch {
+        rejected.push(f.name);
+      }
+    }
+
+    if (rejected.length > 0) {
+      setGlobalError(
+        `Nepodporovaný typ souboru: ${rejected.slice(0, 3).join(", ")}${rejected.length > 3 ? "…" : ""}`,
+      );
+    } else {
+      setGlobalError("");
+    }
+
+    if (mapped.length === 0) {
+      return;
+    }
+
     setFiles((prev) => [
       ...prev,
-      ...arr.map((f) => ({
-        id: fileId(),
-        file: f,
-        title: fileTitle(f.name),
-        slug: autoSlug(f.name),
-        mediaType: detectMediaType(f),
-        status: "pending" as FileStatus,
-        progress: 0,
-        mediaUrl: null,
-        error: null,
-      })),
+      ...mapped,
     ]);
   }
 
@@ -195,6 +227,10 @@ export default function BulkUploadPage() {
   function onDrop(e: React.DragEvent) {
     e.preventDefault();
     setDragging(false);
+    if (!singerId) {
+      setGlobalError("Nejdřív vyberte zpěváka / influencera.");
+      return;
+    }
     if (e.dataTransfer.files.length) addFiles(e.dataTransfer.files);
   }
 
@@ -206,14 +242,14 @@ export default function BulkUploadPage() {
     setFiles((prev) => prev.map((f) => (f.id === id ? { ...f, ...patch } : f)));
   }
 
-  // ── Upload všech pending souborů (max 5 concurrent) ──────────────────────
+  // ── Upload všech pending souborů (server-side, omezená konkurence) ───────
   async function handleUpload() {
-    if (!singerId) { setGlobalError("Vyberte zpěváka"); return; }
+    if (!singerId) { setGlobalError("Vyberte zpěváka / influencera."); return; }
     setGlobalError("");
     setUploading(true);
 
     const pending = files.filter((f) => f.status === "pending");
-    const CONCURRENCY = 5;
+    const CONCURRENCY = 3;
     let idx = 0;
 
     async function worker() {
@@ -242,7 +278,7 @@ export default function BulkUploadPage() {
   async function handleSave() {
     const done = files.filter((f) => f.status === "done" && f.mediaUrl);
     if (!done.length) return;
-    if (!singerId) { setGlobalError("Vyberte zpěváka"); return; }
+    if (!singerId) { setGlobalError("Vyberte zpěváka / influencera."); return; }
 
     setSaving(true);
     setGlobalError("");
@@ -256,7 +292,7 @@ export default function BulkUploadPage() {
         media_url: f.mediaUrl,
         cover_url: null,
         track_number: null,
-        duration_seconds: null,
+        duration_seconds: 0,
         has_lyrics: false,
         lyrics_text: "",
         is_instrumental: false,
@@ -313,14 +349,14 @@ export default function BulkUploadPage() {
       <div className="grid grid-cols-2 gap-4 mb-6 max-w-2xl">
         <div className="space-y-1.5">
           <label className="block text-sm font-medium text-white">
-            Zpěvák <span className="text-red-400">*</span>
+            Zpěvák / influencer <span className="text-red-400">*</span>
           </label>
           <select
             value={singerId}
             onChange={(e) => setSingerId(e.target.value)}
             className={selectClass}
           >
-            <option value="">Vyberte zpěváka...</option>
+            <option value="">Vyberte zpěváka / influencera...</option>
             {singers.map((s) => (
               <option key={s.value} value={s.value}>
                 {s.label}
@@ -348,7 +384,7 @@ export default function BulkUploadPage() {
       {files.length < 50 && (
         <div
           ref={dropRef}
-          onClick={() => inputRef.current?.click()}
+          onClick={() => singerId && inputRef.current?.click()}
           onDragOver={onDragOver}
           onDragLeave={onDragLeave}
           onDrop={onDrop}
@@ -356,15 +392,18 @@ export default function BulkUploadPage() {
             "border-2 border-dashed rounded-xl p-10 text-center cursor-pointer transition-colors mb-6",
             dragging
               ? "border-lime bg-lime/5 text-lime"
-              : "border-white/10 hover:border-white/30 text-sub"
+              : "border-white/10 hover:border-white/30 text-sub",
+            !singerId && "opacity-60 cursor-not-allowed"
           )}
         >
           <Upload size={32} className="mx-auto mb-3 opacity-60" />
           <p className="text-sm font-medium">
-            Přetáhněte soubory sem nebo klikněte pro výběr
+            {singerId
+              ? "Přetáhněte soubory sem nebo klikněte pro výběr"
+              : "Nejdřív vyberte zpěváka / influencera"}
           </p>
           <p className="text-xs mt-1 opacity-70">
-            MP3, WAV, FLAC, OGG, AAC, M4A, AIFF · MP4, MOV, WebM · JPEG, PNG, WebP
+            MP3, WAV, FLAC, OGG, AAC, M4A, AIFF · MP4, MOV, WebM
           </p>
           <p className="text-xs mt-1 opacity-50">
             Max. 50 souborů · zbývá {50 - files.length} míst
@@ -378,6 +417,7 @@ export default function BulkUploadPage() {
         accept={ACCEPT}
         multiple
         className="hidden"
+        disabled={!singerId}
         onChange={(e) => {
           if (e.target.files?.length) addFiles(e.target.files);
           e.target.value = "";

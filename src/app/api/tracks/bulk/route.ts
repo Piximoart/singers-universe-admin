@@ -19,6 +19,16 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const invalidSinger = tracks.find(
+      (track) => !track || typeof track.singer_id !== "string" || !track.singer_id.trim(),
+    );
+    if (invalidSinger) {
+      return NextResponse.json(
+        { error: "Každý track musí mít vybraného zpěváka / influencera." },
+        { status: 400 },
+      );
+    }
+
     const { data, error } = await supabaseAdmin
       .from("tracks")
       .insert(tracks)

@@ -10,7 +10,6 @@ import AudioUpload from "@/components/AudioUpload";
 const MEDIA_TYPES = [
   { value: "audio", label: "Audio" },
   { value: "video", label: "Video" },
-  { value: "instrumental", label: "Instrumental" },
 ];
 
 export default function NewTrackPage() {
@@ -65,13 +64,22 @@ export default function NewTrackPage() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError("");
+    if (!form.singer_id.trim()) {
+      setError("Vyberte zpěváka / influencera.");
+      return;
+    }
+    if (!form.media_url.trim()) {
+      setError("Nahrajte audio nebo video soubor.");
+      return;
+    }
     setSaving(true);
     try {
       const payload = {
         ...form,
+        media_type: form.media_type === "video" ? "video" : "audio",
         album_id: form.album_id || null,
         track_number: form.track_number ? Number(form.track_number) : null,
-        duration_seconds: form.duration_seconds ? Number(form.duration_seconds) : null,
+        duration_seconds: form.duration_seconds ? Number(form.duration_seconds) : 0,
         released_at: form.released_at || null,
       };
       const res = await fetch("/api/tracks", {
@@ -106,7 +114,7 @@ export default function NewTrackPage() {
           <h2 className="text-sm font-semibold text-white">Základní informace</h2>
 
           <div className="grid grid-cols-2 gap-4">
-            <FormField type="select" label="Zpěvák" name="singer_id" value={form.singer_id} onChange={(v) => set("singer_id", v)} options={singers} required />
+            <FormField type="select" label="Zpěvák / influencer" name="singer_id" value={form.singer_id} onChange={(v) => set("singer_id", v)} options={singers} required />
             <FormField type="select" label="Album (volitelné)" name="album_id" value={form.album_id} onChange={(v) => set("album_id", v)} options={albums} />
           </div>
 
@@ -140,9 +148,11 @@ export default function NewTrackPage() {
           <AudioUpload
             label="Audio soubor"
             onUpload={(url) => set("media_url", url)}
-            uploadKey={`audio/${form.slug || "track"}.mp3`}
+            uploadKey={`${form.media_type === "video" ? "video" : "audio"}/${form.singer_id || "unsorted"}/${form.slug || "track"}.${form.media_type === "video" ? "mp4" : "mp3"}`}
             isPrivate={true}
-            hint="MP3, WAV nebo M4A. Nahraje se přímo na storage."
+            uploadEnabled={!!form.singer_id}
+            uploadLockReason="Nejdřív vyberte zpěváka / influencera."
+            hint="MP3/WAV/M4A nebo MP4/MOV/WebM. Nahraje se do privátního storage."
           />
 
           <ImageUpload

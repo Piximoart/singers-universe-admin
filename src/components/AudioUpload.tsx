@@ -143,7 +143,7 @@ export default function AudioUpload({
       <input
         ref={inputRef}
         type="file"
-        accept="audio/*,video/*"
+        accept="audio/mpeg,audio/wav,audio/flac,audio/ogg,audio/aac,audio/x-m4a,audio/mp4,audio/aiff,audio/x-aiff,audio/opus,video/mp4,video/quicktime,video/webm,audio/*,video/*"
         className="hidden"
         onChange={(e) => {
           const file = e.target.files?.[0];

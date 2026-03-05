@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { Plus, Upload } from "lucide-react";
+import { Plus, Upload, Database } from "lucide-react";
 import DataTable, { Column } from "@/components/DataTable";
 
 interface Track {
@@ -67,6 +67,10 @@ export default function TracksPage() {
           <p className="text-sub text-sm mt-1">Správa hudebního katalogu</p>
         </div>
         <div className="flex items-center gap-2">
+          <Link href="/tracks/storage-import" className="flex items-center gap-2 bg-s2 border border-white/10 text-white text-sm font-semibold px-4 py-2 rounded-md hover:border-lime/50 hover:text-lime transition-colors">
+            <Database size={16} />
+            Storage import
+          </Link>
           <Link href="/tracks/bulk" className="flex items-center gap-2 bg-s2 border border-white/10 text-white text-sm font-semibold px-4 py-2 rounded-md hover:border-lime/50 hover:text-lime transition-colors">
             <Upload size={16} />
             Hromadný upload

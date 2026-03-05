@@ -11,12 +11,11 @@ import {
   Music,
   Film,
   Loader2,
+  AlertTriangle,
 } from "lucide-react";
 import { cn } from "@/lib/cn";
 
-// ─── Typy ────────────────────────────────────────────────────────────────────
-
-type FileStatus = "pending" | "uploading" | "done" | "error";
+type FileStatus = "pending" | "uploading" | "done" | "error" | "skipped";
 type MediaType = "audio" | "video";
 
 interface BulkFile {
@@ -31,26 +30,32 @@ interface BulkFile {
   error: string | null;
 }
 
-// ─── Helpers ─────────────────────────────────────────────────────────────────
+interface AlbumOption {
+  value: string;
+  label: string;
+  singerId: string;
+}
 
 function autoSlug(name: string) {
   return name
     .toLowerCase()
-    .replace(/\.[^.]+$/, "") // odeber příponu
+    .replace(/\.[^.]+$/, "")
     .replace(/\s+/g, "-")
     .replace(/[^a-z0-9-]/g, "")
+    .replace(/-+/g, "-")
+    .replace(/^-+|-+$/g, "")
     .slice(0, 80);
 }
 
 function fileTitle(name: string) {
-  return name.replace(/\.[^.]+$/, ""); // bez přípony
+  return name.replace(/\.[^.]+$/, "");
 }
 
 function detectMediaType(file: File): MediaType {
   const t = file.type;
   if (t.startsWith("audio/")) return "audio";
   if (t.startsWith("video/")) return "video";
-  // fallback z přípony
+
   const ext = file.name.split(".").pop()?.toLowerCase() ?? "";
   if (["mp3", "wav", "flac", "ogg", "aac", "m4a", "aiff", "opus"].includes(ext)) return "audio";
   if (["mp4", "mov", "webm", "avi", "mkv"].includes(ext)) return "video";
@@ -74,8 +79,6 @@ const ACCEPT = [
   "audio/*", "video/*",
 ].join(",");
 
-// ─── Concurrent upload worker ─────────────────────────────────────────────────
-
 async function uploadFile(
   bf: BulkFile,
   singerId: string,
@@ -85,7 +88,6 @@ async function uploadFile(
   const ext = bf.file.name.split(".").pop() ?? fallbackExt;
   const key = `${bf.mediaType}/${singerId}/${bf.slug}.${ext}`;
 
-  // Upload přes server-side API (bez CORS preflightů v browseru)
   let uploadedMediaUrl: string | null = null;
   await new Promise<void>((resolve, reject) => {
     const xhr = new XMLHttpRequest();
@@ -126,17 +128,19 @@ async function uploadFile(
   return { mediaUrl: uploadedMediaUrl ?? "" };
 }
 
-// ─── Komponenta ───────────────────────────────────────────────────────────────
-
 export default function BulkUploadPage() {
   const router = useRouter();
   const dropRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const [singers, setSingers] = useState<{ value: string; label: string }[]>([]);
-  const [albums, setAlbums] = useState<{ value: string; label: string }[]>([]);
+  const [allAlbums, setAllAlbums] = useState<AlbumOption[]>([]);
+  const [albums, setAlbums] = useState<AlbumOption[]>([]);
   const [singerId, setSingerId] = useState("");
   const [albumId, setAlbumId] = useState("");
+
+  const [newAlbumTitle, setNewAlbumTitle] = useState("");
+  const [creatingAlbum, setCreatingAlbum] = useState(false);
 
   const [files, setFiles] = useState<BulkFile[]>([]);
   const [uploading, setUploading] = useState(false);
@@ -145,7 +149,8 @@ export default function BulkUploadPage() {
   const [globalError, setGlobalError] = useState("");
   const [dragging, setDragging] = useState(false);
 
-  // Načíst zpěváky + alba
+  const canUploadSelection = !!singerId && !!albumId;
+
   useEffect(() => {
     Promise.all([
       fetch("/api/singers").then((r) => r.json()),
@@ -155,24 +160,37 @@ export default function BulkUploadPage() {
         (s.items || []).map((x: { id: string; stage_name: string }) => ({
           value: x.id,
           label: x.stage_name,
-        }))
+        })),
       );
-      setAlbums([
-        { value: "", label: "Žádné (single)" },
-        ...(a.items || []).map(
-          (x: { id: string; title: string; singers: { stage_name: string } }) => ({
-            value: x.id,
-            label: `${x.title} (${x.singers?.stage_name ?? "?"})`,
-          })
-        ),
-      ]);
+
+      const loadedAlbums: AlbumOption[] = (a.items || []).map(
+        (x: { id: string; title: string; singer_id: string; singers?: { stage_name?: string } }) => ({
+          value: x.id,
+          singerId: x.singer_id,
+          label: `${x.title} (${x.singers?.stage_name ?? "?"})`,
+        }),
+      );
+
+      setAllAlbums(loadedAlbums);
+      setAlbums([]);
+    }).catch(() => {
+      setGlobalError("Nepodařilo se načíst zpěváky/alba.");
     });
   }, []);
 
-  // Přidat soubory ze seznamu
-  function addFiles(newFiles: FileList | File[]) {
+  useEffect(() => {
     if (!singerId) {
-      setGlobalError("Nejdřív vyberte zpěváka / influencera.");
+      setAlbums([]);
+      setAlbumId("");
+      return;
+    }
+
+    setAlbums(allAlbums.filter((a) => a.singerId === singerId));
+  }, [allAlbums, singerId]);
+
+  function addFiles(newFiles: FileList | File[]) {
+    if (!canUploadSelection) {
+      setGlobalError("Nejdřív vyberte zpěváka / influencera a album.");
       return;
     }
 
@@ -206,29 +224,25 @@ export default function BulkUploadPage() {
       setGlobalError("");
     }
 
-    if (mapped.length === 0) {
-      return;
-    }
+    if (mapped.length === 0) return;
 
-    setFiles((prev) => [
-      ...prev,
-      ...mapped,
-    ]);
+    setFiles((prev) => [...prev, ...mapped]);
   }
 
-  // Drag & drop
   function onDragOver(e: React.DragEvent) {
     e.preventDefault();
     setDragging(true);
   }
+
   function onDragLeave() {
     setDragging(false);
   }
+
   function onDrop(e: React.DragEvent) {
     e.preventDefault();
     setDragging(false);
-    if (!singerId) {
-      setGlobalError("Nejdřív vyberte zpěváka / influencera.");
+    if (!canUploadSelection) {
+      setGlobalError("Nejdřív vyberte zpěváka / influencera a album.");
       return;
     }
     if (e.dataTransfer.files.length) addFiles(e.dataTransfer.files);
@@ -242,13 +256,16 @@ export default function BulkUploadPage() {
     setFiles((prev) => prev.map((f) => (f.id === id ? { ...f, ...patch } : f)));
   }
 
-  // ── Upload všech pending souborů (server-side, omezená konkurence) ───────
   async function handleUpload() {
-    if (!singerId) { setGlobalError("Vyberte zpěváka / influencera."); return; }
+    if (!canUploadSelection) {
+      setGlobalError("Vyberte zpěváka / influencera i album.");
+      return;
+    }
+
     setGlobalError("");
     setUploading(true);
 
-    const pending = files.filter((f) => f.status === "pending");
+    const pending = files.filter((f) => f.status === "pending" || f.status === "error");
     const CONCURRENCY = 3;
     let idx = 0;
 
@@ -258,9 +275,9 @@ export default function BulkUploadPage() {
         updateFile(bf.id, { status: "uploading", progress: 0, error: null });
         try {
           const { mediaUrl } = await uploadFile(bf, singerId, (id, pct) =>
-            updateFile(id, { progress: pct })
+            updateFile(id, { progress: pct }),
           );
-          updateFile(bf.id, { status: "done", progress: 100, mediaUrl });
+          updateFile(bf.id, { status: "done", progress: 100, mediaUrl, error: null });
         } catch (err) {
           updateFile(bf.id, {
             status: "error",
@@ -274,18 +291,22 @@ export default function BulkUploadPage() {
     setUploading(false);
   }
 
-  // ── Uložit dokončené soubory do DB ────────────────────────────────────────
   async function handleSave() {
     const done = files.filter((f) => f.status === "done" && f.mediaUrl);
     if (!done.length) return;
-    if (!singerId) { setGlobalError("Vyberte zpěváka / influencera."); return; }
+    if (!canUploadSelection) {
+      setGlobalError("Vyberte zpěváka / influencera i album.");
+      return;
+    }
 
     setSaving(true);
     setGlobalError("");
+
     try {
       const tracks = done.map((f) => ({
+        client_id: f.id,
         singer_id: singerId,
-        album_id: albumId || null,
+        album_id: albumId,
         title: f.title,
         slug: f.slug,
         media_type: f.mediaType,
@@ -298,7 +319,6 @@ export default function BulkUploadPage() {
         is_instrumental: false,
         is_premium_backstage: false,
         is_premium_headliner: false,
-        released_at: null,
       }));
 
       const res = await fetch("/api/tracks/bulk", {
@@ -306,11 +326,39 @@ export default function BulkUploadPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ tracks }),
       });
+
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Uložení selhalo");
 
-      setSavedCount(data.count);
-      // Označit jako uložené — odeber ze seznamu po 2s
+      const failedByClient = new Map<string, string>();
+      const skippedByClient = new Map<string, string>();
+
+      for (const item of data.failed ?? []) {
+        if (item.client_id) failedByClient.set(String(item.client_id), String(item.reason ?? "DB chyba"));
+      }
+      for (const item of data.skipped ?? []) {
+        if (item.client_id) skippedByClient.set(String(item.client_id), String(item.reason ?? "Přeskočeno"));
+      }
+
+      setFiles((prev) =>
+        prev.map((f) => {
+          const failedReason = failedByClient.get(f.id);
+          if (failedReason) {
+            return { ...f, status: "error", error: failedReason };
+          }
+          const skippedReason = skippedByClient.get(f.id);
+          if (skippedReason) {
+            return { ...f, status: "skipped", error: skippedReason };
+          }
+          if (f.status === "done") {
+            return { ...f, error: null };
+          }
+          return f;
+        }),
+      );
+
+      const createdCount = Number(data.createdCount ?? 0);
+      setSavedCount(createdCount);
       setTimeout(() => {
         setFiles((prev) => prev.filter((f) => f.status !== "done"));
         setSavedCount(null);
@@ -322,16 +370,71 @@ export default function BulkUploadPage() {
     }
   }
 
+  async function handleCreateAlbum() {
+    if (!singerId) {
+      setGlobalError("Nejdřív vyberte zpěváka / influencera.");
+      return;
+    }
+    const title = newAlbumTitle.trim();
+    if (!title) {
+      setGlobalError("Zadejte název alba.");
+      return;
+    }
+
+    setCreatingAlbum(true);
+    setGlobalError("");
+
+    try {
+      const slug = autoSlug(title);
+      const payload = {
+        singer_id: singerId,
+        title,
+        slug,
+        short_description: "",
+        long_description: "",
+        release_date: null,
+        cover_url: "",
+        is_premium_backstage: false,
+        is_premium_headliner: false,
+      };
+
+      const res = await fetch("/api/albums", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || "Vytvoření alba selhalo");
+      }
+
+      const created = data.album as { id: string; title: string; singer_id: string };
+      const option: AlbumOption = {
+        value: created.id,
+        singerId: created.singer_id,
+        label: created.title,
+      };
+
+      setAllAlbums((prev) => [option, ...prev]);
+      setAlbumId(created.id);
+      setNewAlbumTitle("");
+    } catch (err) {
+      setGlobalError(err instanceof Error ? err.message : "Vytvoření alba selhalo");
+    } finally {
+      setCreatingAlbum(false);
+    }
+  }
+
   const pendingCount = files.filter((f) => f.status === "pending").length;
   const doneCount = files.filter((f) => f.status === "done").length;
   const errorCount = files.filter((f) => f.status === "error").length;
+  const skippedCount = files.filter((f) => f.status === "skipped").length;
 
   const selectClass =
     "bg-s2 border border-white/10 rounded-md px-3 py-2.5 text-sm text-white focus:outline-none focus:border-lime transition-colors";
 
   return (
     <div>
-      {/* Hlavička */}
       <div className="flex items-center gap-3 mb-6">
         <button
           onClick={() => router.back()}
@@ -345,15 +448,20 @@ export default function BulkUploadPage() {
         </div>
       </div>
 
-      {/* Zpěvák + album */}
-      <div className="grid grid-cols-2 gap-4 mb-6 max-w-2xl">
+      <div className="grid grid-cols-2 gap-4 mb-4 max-w-2xl">
         <div className="space-y-1.5">
           <label className="block text-sm font-medium text-white">
             Zpěvák / influencer <span className="text-red-400">*</span>
           </label>
           <select
             value={singerId}
-            onChange={(e) => setSingerId(e.target.value)}
+            onChange={(e) => {
+              const nextSinger = e.target.value;
+              setSingerId(nextSinger);
+              setAlbumId("");
+              setFiles([]);
+              setGlobalError("");
+            }}
             className={selectClass}
           >
             <option value="">Vyberte zpěváka / influencera...</option>
@@ -364,13 +472,18 @@ export default function BulkUploadPage() {
             ))}
           </select>
         </div>
+
         <div className="space-y-1.5">
-          <label className="block text-sm font-medium text-white">Album (volitelné)</label>
+          <label className="block text-sm font-medium text-white">
+            Album <span className="text-red-400">*</span>
+          </label>
           <select
             value={albumId}
             onChange={(e) => setAlbumId(e.target.value)}
             className={selectClass}
+            disabled={!singerId}
           >
+            <option value="">Vyberte album...</option>
             {albums.map((a) => (
               <option key={a.value} value={a.value}>
                 {a.label}
@@ -380,11 +493,31 @@ export default function BulkUploadPage() {
         </div>
       </div>
 
-      {/* Drop zona */}
+      <div className="max-w-2xl mb-6">
+        <label className="block text-xs text-sub mb-1">Quick create album</label>
+        <div className="flex items-center gap-2">
+          <input
+            type="text"
+            value={newAlbumTitle}
+            onChange={(e) => setNewAlbumTitle(e.target.value)}
+            className="bg-s2 border border-white/10 rounded-md px-3 py-2.5 text-sm text-white flex-1 focus:outline-none focus:border-lime transition-colors"
+            placeholder="Např. Marlow Test Album"
+            disabled={!singerId || creatingAlbum}
+          />
+          <button
+            onClick={handleCreateAlbum}
+            disabled={!singerId || creatingAlbum || !newAlbumTitle.trim()}
+            className="bg-s2 border border-white/10 text-white text-sm font-semibold px-4 py-2.5 rounded-md hover:border-lime/50 hover:text-lime transition-colors disabled:opacity-50"
+          >
+            {creatingAlbum ? "Vytvářím..." : "Vytvořit"}
+          </button>
+        </div>
+      </div>
+
       {files.length < 50 && (
         <div
           ref={dropRef}
-          onClick={() => singerId && inputRef.current?.click()}
+          onClick={() => canUploadSelection && inputRef.current?.click()}
           onDragOver={onDragOver}
           onDragLeave={onDragLeave}
           onDrop={onDrop}
@@ -393,14 +526,14 @@ export default function BulkUploadPage() {
             dragging
               ? "border-lime bg-lime/5 text-lime"
               : "border-white/10 hover:border-white/30 text-sub",
-            !singerId && "opacity-60 cursor-not-allowed"
+            !canUploadSelection && "opacity-60 cursor-not-allowed",
           )}
         >
           <Upload size={32} className="mx-auto mb-3 opacity-60" />
           <p className="text-sm font-medium">
-            {singerId
+            {canUploadSelection
               ? "Přetáhněte soubory sem nebo klikněte pro výběr"
-              : "Nejdřív vyberte zpěváka / influencera"}
+              : "Nejdřív vyberte zpěváka / influencera i album"}
           </p>
           <p className="text-xs mt-1 opacity-70">
             MP3, WAV, FLAC, OGG, AAC, M4A, AIFF · MP4, MOV, WebM
@@ -417,14 +550,13 @@ export default function BulkUploadPage() {
         accept={ACCEPT}
         multiple
         className="hidden"
-        disabled={!singerId}
+        disabled={!canUploadSelection}
         onChange={(e) => {
           if (e.target.files?.length) addFiles(e.target.files);
           e.target.value = "";
         }}
       />
 
-      {/* Seznam souborů */}
       {files.length > 0 && (
         <div className="space-y-2 mb-6">
           {files.map((bf) => {
@@ -434,7 +566,6 @@ export default function BulkUploadPage() {
                 key={bf.id}
                 className="bg-s1 rounded-lg px-4 py-3 flex items-center gap-3"
               >
-                {/* Ikona stavu */}
                 <div className="shrink-0 w-7 h-7 flex items-center justify-center">
                   {bf.status === "pending" && (
                     <Icon size={18} className="text-sub" />
@@ -448,14 +579,16 @@ export default function BulkUploadPage() {
                   {bf.status === "error" && (
                     <AlertCircle size={18} className="text-red-400" />
                   )}
+                  {bf.status === "skipped" && (
+                    <AlertTriangle size={18} className="text-amber-400" />
+                  )}
                 </div>
 
-                {/* Název + slug */}
                 <div className="flex-1 min-w-0 grid grid-cols-2 gap-2">
                   <input
                     type="text"
                     value={bf.title}
-                    disabled={bf.status === "uploading" || bf.status === "done"}
+                    disabled={bf.status === "uploading"}
                     onChange={(e) => {
                       const title = e.target.value;
                       updateFile(bf.id, {
@@ -469,7 +602,7 @@ export default function BulkUploadPage() {
                   <input
                     type="text"
                     value={bf.slug}
-                    disabled={bf.status === "uploading" || bf.status === "done"}
+                    disabled={bf.status === "uploading"}
                     onChange={(e) =>
                       updateFile(bf.id, { slug: autoSlug(e.target.value) })
                     }
@@ -478,7 +611,6 @@ export default function BulkUploadPage() {
                   />
                 </div>
 
-                {/* Typ + velikost */}
                 <div className="shrink-0 text-right hidden sm:block">
                   <span className="text-[10px] font-bold uppercase tracking-widest text-sub">
                     {bf.mediaType}
@@ -488,7 +620,6 @@ export default function BulkUploadPage() {
                   </p>
                 </div>
 
-                {/* Progress bar (uploading) */}
                 {bf.status === "uploading" && (
                   <div className="shrink-0 w-20">
                     <div className="w-full bg-s4 rounded-full h-1.5">
@@ -501,14 +632,18 @@ export default function BulkUploadPage() {
                   </div>
                 )}
 
-                {/* Error text */}
-                {bf.status === "error" && (
-                  <p className="shrink-0 text-xs text-red-400 max-w-[120px] truncate" title={bf.error ?? ""}>
+                {(bf.status === "error" || bf.status === "skipped") && (
+                  <p
+                    className={cn(
+                      "shrink-0 text-xs max-w-[180px] truncate",
+                      bf.status === "error" ? "text-red-400" : "text-amber-400",
+                    )}
+                    title={bf.error ?? ""}
+                  >
                     {bf.error}
                   </p>
                 )}
 
-                {/* Odstranit */}
                 {bf.status !== "uploading" && (
                   <button
                     onClick={() => removeFile(bf.id)}
@@ -523,27 +658,24 @@ export default function BulkUploadPage() {
         </div>
       )}
 
-      {/* Globální chyba */}
       {globalError && (
         <p className="text-sm text-red-400 bg-red-400/10 border border-red-400/20 rounded-md px-3 py-2 mb-4">
           {globalError}
         </p>
       )}
 
-      {/* Úspěšné uložení */}
       {savedCount !== null && (
         <p className="text-sm text-green-400 bg-green-400/10 border border-green-400/20 rounded-md px-3 py-2 mb-4">
           ✓ Uloženo {savedCount} tracků do databáze
         </p>
       )}
 
-      {/* Akce */}
       {files.length > 0 && (
         <div className="flex items-center gap-3 flex-wrap">
           {pendingCount > 0 && (
             <button
               onClick={handleUpload}
-              disabled={uploading || !singerId}
+              disabled={uploading || !canUploadSelection}
               className="flex items-center gap-2 bg-lime text-bg text-sm font-semibold px-5 py-2.5 rounded-md hover:bg-white transition-colors disabled:opacity-50"
             >
               {uploading ? (
@@ -558,7 +690,7 @@ export default function BulkUploadPage() {
           {doneCount > 0 && (
             <button
               onClick={handleSave}
-              disabled={saving || !singerId}
+              disabled={saving || !canUploadSelection}
               className="flex items-center gap-2 bg-s2 border border-white/10 text-white text-sm font-semibold px-5 py-2.5 rounded-md hover:border-lime/50 hover:text-lime transition-colors disabled:opacity-50"
             >
               {saving ? <Loader2 size={15} className="animate-spin" /> : <CheckCircle size={15} />}
@@ -571,14 +703,18 @@ export default function BulkUploadPage() {
               onClick={() =>
                 setFiles((prev) =>
                   prev.map((f) =>
-                    f.status === "error" ? { ...f, status: "pending", error: null } : f
-                  )
+                    f.status === "error" ? { ...f, status: "pending", error: null } : f,
+                  ),
                 )
               }
               className="text-sm text-red-400 hover:text-white transition-colors"
             >
               Zkusit znovu ({errorCount})
             </button>
+          )}
+
+          {skippedCount > 0 && (
+            <span className="text-xs text-amber-400">Přeskočeno: {skippedCount}</span>
           )}
 
           <button

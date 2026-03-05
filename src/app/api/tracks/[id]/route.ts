@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
+import { normalizeTrackInput } from "@/lib/tracks";
 
 export async function GET(
   _req: NextRequest,
@@ -23,16 +24,52 @@ export async function PUT(
 ) {
   const { id } = await params;
   const body = await request.json();
-  if (!body?.singer_id || typeof body.singer_id !== "string" || !body.singer_id.trim()) {
+  const { data: normalized, error: normalizeError } = normalizeTrackInput(
+    body as Record<string, unknown>,
+  );
+
+  if (!normalized || normalizeError) {
     return NextResponse.json(
-      { error: "Track musí mít vybraného zpěváka / influencera." },
+      { error: normalizeError ?? "Neplatný payload tracku." },
       { status: 400 },
+    );
+  }
+
+  const { data: album, error: albumError } = await supabaseAdmin
+    .from("albums")
+    .select("id, singer_id")
+    .eq("id", normalized.album_id)
+    .maybeSingle();
+  if (albumError || !album) {
+    return NextResponse.json({ error: "Album neexistuje." }, { status: 400 });
+  }
+  if ((album.singer_id as string) !== normalized.singer_id) {
+    return NextResponse.json(
+      { error: "Album nepatří vybranému zpěvákovi / influencerovi." },
+      { status: 400 },
+    );
+  }
+
+  const { data: duplicateMedia } = await supabaseAdmin
+    .from("tracks")
+    .select("id")
+    .eq("singer_id", normalized.singer_id)
+    .eq("media_url", normalized.media_url)
+    .neq("id", id)
+    .maybeSingle();
+  if (duplicateMedia) {
+    return NextResponse.json(
+      { error: "Jiný track už používá stejný soubor média." },
+      { status: 409 },
     );
   }
 
   const { data, error } = await supabaseAdmin
     .from("tracks")
-    .update(body)
+    .update((() => {
+      const { client_id: _clientId, ...trackRow } = normalized;
+      return trackRow;
+    })())
     .eq("id", id)
     .select()
     .single();

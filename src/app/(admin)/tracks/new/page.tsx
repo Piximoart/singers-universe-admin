@@ -17,6 +17,7 @@ export default function NewTrackPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [singers, setSingers] = useState<{ value: string; label: string }[]>([]);
+  const [allAlbums, setAllAlbums] = useState<{ value: string; label: string; singerId: string }[]>([]);
   const [albums, setAlbums] = useState<{ value: string; label: string }[]>([]);
 
   const [form, setForm] = useState({
@@ -43,15 +44,30 @@ export default function NewTrackPage() {
       fetch("/api/albums").then((r) => r.json()),
     ]).then(([s, a]) => {
       setSingers((s.items || []).map((x: { id: string; stage_name: string }) => ({ value: x.id, label: x.stage_name })));
-      setAlbums([
-        { value: "", label: "Žádné (single)" },
-        ...(a.items || []).map((x: { id: string; title: string; singers: { stage_name: string } }) => ({
-          value: x.id,
-          label: `${x.title} (${x.singers?.stage_name ?? "?"})`,
-        })),
-      ]);
+      setAllAlbums((a.items || []).map((x: { id: string; singer_id: string; title: string; singers: { stage_name: string } }) => ({
+        value: x.id,
+        singerId: x.singer_id,
+        label: `${x.title} (${x.singers?.stage_name ?? "?"})`,
+      })));
     });
   }, []);
+
+  useEffect(() => {
+    if (!form.singer_id) {
+      setAlbums([]);
+      if (form.album_id) setForm((prev) => ({ ...prev, album_id: "" }));
+      return;
+    }
+
+    const filtered = allAlbums
+      .filter((album) => album.singerId === form.singer_id)
+      .map(({ value, label }) => ({ value, label }));
+    setAlbums(filtered);
+
+    if (form.album_id && !filtered.some((a) => a.value === form.album_id)) {
+      setForm((prev) => ({ ...prev, album_id: "" }));
+    }
+  }, [allAlbums, form.album_id, form.singer_id]);
 
   function set(key: string, value: string | boolean) {
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -68,6 +84,10 @@ export default function NewTrackPage() {
       setError("Vyberte zpěváka / influencera.");
       return;
     }
+    if (!form.album_id.trim()) {
+      setError("Vyberte album.");
+      return;
+    }
     if (!form.media_url.trim()) {
       setError("Nahrajte audio nebo video soubor.");
       return;
@@ -77,10 +97,10 @@ export default function NewTrackPage() {
       const payload = {
         ...form,
         media_type: form.media_type === "video" ? "video" : "audio",
-        album_id: form.album_id || null,
+        album_id: form.album_id,
         track_number: form.track_number ? Number(form.track_number) : null,
         duration_seconds: form.duration_seconds ? Number(form.duration_seconds) : 0,
-        released_at: form.released_at || null,
+        released_at: form.released_at || undefined,
       };
       const res = await fetch("/api/tracks", {
         method: "POST",
@@ -115,7 +135,7 @@ export default function NewTrackPage() {
 
           <div className="grid grid-cols-2 gap-4">
             <FormField type="select" label="Zpěvák / influencer" name="singer_id" value={form.singer_id} onChange={(v) => set("singer_id", v)} options={singers} required />
-            <FormField type="select" label="Album (volitelné)" name="album_id" value={form.album_id} onChange={(v) => set("album_id", v)} options={albums} />
+            <FormField type="select" label="Album" name="album_id" value={form.album_id} onChange={(v) => set("album_id", v)} options={albums} required />
           </div>
 
           <FormField

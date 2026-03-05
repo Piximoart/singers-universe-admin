@@ -1,11 +1,19 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
 
-export async function GET() {
-  const { data, error } = await supabaseAdmin
+export async function GET(request: NextRequest) {
+  const singerId = request.nextUrl.searchParams.get("singerId")?.trim() || "";
+
+  let query = supabaseAdmin
     .from("albums")
     .select("*, singers(stage_name, slug)")
     .order("release_date", { ascending: false });
+
+  if (singerId) {
+    query = query.eq("singer_id", singerId);
+  }
+
+  const { data, error } = await query;
 
   if (error)
     return NextResponse.json({ error: error.message }, { status: 500 });

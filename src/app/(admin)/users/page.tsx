@@ -1,5 +1,7 @@
 import { supabaseAdmin } from "@/lib/supabase";
 
+export const dynamic = "force-dynamic";
+
 interface UserRow {
   id: string;
   email: string;

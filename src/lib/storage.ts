@@ -3,6 +3,7 @@ import {
   GetObjectCommand,
   PutObjectCommand,
   DeleteObjectCommand,
+  ListObjectsV2Command,
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 
@@ -216,4 +217,61 @@ export async function deleteFile(
  */
 export function getPublicUrl(key: string): string {
   return `${PUBLIC_BASE_URL}/${trimSlashes(key)}`;
+}
+
+export type SingerStorageObject = {
+  key: string;
+  mediaType: "audio" | "video";
+  size: number;
+  lastModified: string | null;
+  storedUrl: string;
+};
+
+export async function listSingerStorageObjects(
+  singerId: string,
+): Promise<SingerStorageObject[]> {
+  const safeSingerId = trimSlashes(singerId);
+  if (!safeSingerId) return [];
+
+  const bucket = BUCKET_PRIVATE;
+  const prefixes = [`audio/${safeSingerId}/`, `video/${safeSingerId}/`];
+  const out: SingerStorageObject[] = [];
+
+  for (const prefix of prefixes) {
+    let continuationToken: string | undefined;
+    do {
+      const response = await s3.send(
+        new ListObjectsV2Command({
+          Bucket: bucket,
+          Prefix: prefix,
+          ContinuationToken: continuationToken,
+          MaxKeys: 1000,
+        }),
+      );
+
+      for (const obj of response.Contents ?? []) {
+        if (!obj.Key || obj.Key.endsWith("/")) continue;
+        const key = trimSlashes(obj.Key);
+        out.push({
+          key,
+          mediaType: key.startsWith("video/") ? "video" : "audio",
+          size: typeof obj.Size === "number" ? obj.Size : 0,
+          lastModified: obj.LastModified ? obj.LastModified.toISOString() : null,
+          storedUrl: `private://${key}`,
+        });
+      }
+
+      continuationToken = response.IsTruncated
+        ? response.NextContinuationToken
+        : undefined;
+    } while (continuationToken);
+  }
+
+  out.sort((a, b) => {
+    const ta = a.lastModified ? Date.parse(a.lastModified) : 0;
+    const tb = b.lastModified ? Date.parse(b.lastModified) : 0;
+    return tb - ta;
+  });
+
+  return out;
 }

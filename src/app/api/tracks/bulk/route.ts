@@ -1,11 +1,20 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
+import { normalizeTrackInput } from "@/lib/tracks";
+
+type BulkTrackResult = {
+  client_id: string | null;
+  slug: string;
+  media_url: string;
+  reason: string;
+};
 
 export async function POST(request: NextRequest) {
   try {
-    const { tracks } = await request.json();
+    const body = await request.json();
+    const tracks = Array.isArray(body?.tracks) ? body.tracks : [];
 
-    if (!Array.isArray(tracks) || tracks.length === 0) {
+    if (tracks.length === 0) {
       return NextResponse.json(
         { error: "Prázdný seznam tracků" },
         { status: 400 },
@@ -19,28 +28,110 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const invalidSinger = tracks.find(
-      (track) => !track || typeof track.singer_id !== "string" || !track.singer_id.trim(),
-    );
-    if (invalidSinger) {
-      return NextResponse.json(
-        { error: "Každý track musí mít vybraného zpěváka / influencera." },
-        { status: 400 },
+    const failed: BulkTrackResult[] = [];
+    const skipped: BulkTrackResult[] = [];
+    const createdIds: string[] = [];
+    const albumSingerCache = new Map<string, string | null>();
+
+    for (const rawTrack of tracks) {
+      const { data: normalized, error: normalizeError } = normalizeTrackInput(
+        rawTrack as Record<string, unknown>,
       );
-    }
 
-    const { data, error } = await supabaseAdmin
-      .from("tracks")
-      .insert(tracks)
-      .select("id");
+      if (!normalized || normalizeError) {
+        failed.push({
+          client_id: normalized?.client_id ?? null,
+          slug: normalized?.slug ?? "",
+          media_url: normalized?.media_url ?? "",
+          reason: normalizeError ?? "Invalid track payload",
+        });
+        continue;
+      }
 
-    if (error) {
-      return NextResponse.json({ error: error.message }, { status: 400 });
+      // Album must exist and belong to the same singer.
+      if (!albumSingerCache.has(normalized.album_id)) {
+        const { data: album, error: albumError } = await supabaseAdmin
+          .from("albums")
+          .select("id, singer_id")
+          .eq("id", normalized.album_id)
+          .maybeSingle();
+
+        if (albumError || !album) {
+          albumSingerCache.set(normalized.album_id, null);
+        } else {
+          albumSingerCache.set(normalized.album_id, album.singer_id as string);
+        }
+      }
+
+      const albumSingerId = albumSingerCache.get(normalized.album_id);
+      if (!albumSingerId) {
+        failed.push({
+          client_id: normalized.client_id,
+          slug: normalized.slug,
+          media_url: normalized.media_url,
+          reason: "Album neexistuje.",
+        });
+        continue;
+      }
+      if (albumSingerId !== normalized.singer_id) {
+        failed.push({
+          client_id: normalized.client_id,
+          slug: normalized.slug,
+          media_url: normalized.media_url,
+          reason: "Album nepatří vybranému zpěvákovi / influencerovi.",
+        });
+        continue;
+      }
+
+      // Idempotency: if same singer + media_url already exists, skip.
+      const { data: existingMedia, error: existingMediaError } = await supabaseAdmin
+        .from("tracks")
+        .select("id")
+        .eq("singer_id", normalized.singer_id)
+        .eq("media_url", normalized.media_url)
+        .maybeSingle();
+
+      if (!existingMediaError && existingMedia) {
+        skipped.push({
+          client_id: normalized.client_id,
+          slug: normalized.slug,
+          media_url: normalized.media_url,
+          reason: "Track se stejným souborem už existuje.",
+        });
+        continue;
+      }
+
+      const { data: inserted, error: insertError } = await supabaseAdmin
+        .from("tracks")
+        .insert((() => {
+          const { client_id: _clientId, ...trackRow } = normalized;
+          return trackRow;
+        })())
+        .select("id")
+        .single();
+
+      if (insertError) {
+        failed.push({
+          client_id: normalized.client_id,
+          slug: normalized.slug,
+          media_url: normalized.media_url,
+          reason: insertError.message,
+        });
+        continue;
+      }
+
+      createdIds.push(inserted.id as string);
     }
 
     return NextResponse.json(
-      { ok: true, count: data?.length ?? 0 },
-      { status: 201 },
+      {
+        ok: true,
+        createdCount: createdIds.length,
+        createdIds,
+        failed,
+        skipped,
+      },
+      { status: 200 },
     );
   } catch (err) {
     console.error("Bulk insert error:", err);

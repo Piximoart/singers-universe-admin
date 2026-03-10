@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useId, useRef, useState } from "react";
 import { Music, X, CheckCircle } from "lucide-react";
 import { cn } from "@/lib/cn";
 
@@ -25,6 +25,7 @@ export default function AudioUpload({
   uploadLockReason,
   hint,
 }: AudioUploadProps) {
+  const inputId = useId();
   const [fileName, setFileName] = useState<string | null>(
     currentUrl ? currentUrl.split("/").pop() || null : null
   );
@@ -33,6 +34,12 @@ export default function AudioUpload({
   const [done, setDone] = useState(!!currentUrl);
   const [error, setError] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
+
+  function openPicker() {
+    if (!loading && uploadEnabled) {
+      inputRef.current?.click();
+    }
+  }
 
   async function handleFile(file: File) {
     setError("");
@@ -100,9 +107,8 @@ export default function AudioUpload({
       <label className="block text-sm font-medium text-white">{label}</label>
 
       <div
-        onClick={() => !loading && uploadEnabled && inputRef.current?.click()}
         className={cn(
-          "border border-dashed border-border rounded-lg bg-s2 px-4 py-4 cursor-pointer hover:border-sub transition-colors",
+          "rounded-lg border border-dashed border-border bg-s2 px-4 py-4 transition-colors hover:border-sub",
           loading && "cursor-wait opacity-70",
           !uploadEnabled && "cursor-not-allowed opacity-60"
         )}
@@ -139,18 +145,36 @@ export default function AudioUpload({
             </button>
           </div>
         ) : (
-          <div className="flex items-center gap-2 text-sm text-sub">
+          <label
+            htmlFor={inputId}
+            className={cn(
+              "flex items-center gap-2 text-sm text-sub",
+              uploadEnabled && "cursor-pointer",
+            )}
+          >
             <Music size={16} strokeWidth={1.5} />
             <span>
               {uploadEnabled
                 ? "Kliknout a nahrát audio soubor"
                 : uploadLockReason || "Nejdřív vyberte zpěváka / influencera"}
             </span>
-          </div>
+          </label>
         )}
       </div>
 
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          onClick={openPicker}
+          disabled={loading || !uploadEnabled}
+          className="inline-flex items-center justify-center rounded-md bg-s3 px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-s4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-lime/80 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {done && fileName ? "Vybrat jiné audio" : "Vybrat audio"}
+        </button>
+      </div>
+
       <input
+        id={inputId}
         ref={inputRef}
         type="file"
         accept="audio/mpeg,audio/wav,audio/flac,audio/ogg,audio/aac,audio/x-m4a,audio/mp4,audio/aiff,audio/x-aiff,audio/opus,video/mp4,video/quicktime,video/webm,audio/*,video/*"

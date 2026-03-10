@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { Clapperboard, X } from "lucide-react";
 import { cn } from "@/lib/cn";
 
@@ -19,6 +19,7 @@ export default function VideoUpload({
   uploadKey,
   hint,
 }: VideoUploadProps) {
+  const inputId = useId();
   const [preview, setPreview] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -137,17 +138,8 @@ export default function VideoUpload({
       <label className="block text-sm font-medium text-white">{label}</label>
 
       <div
-        role="button"
-        tabIndex={loading ? -1 : 0}
-        onClick={openPicker}
-        onKeyDown={(e) => {
-          if (e.key === "Enter" || e.key === " ") {
-            e.preventDefault();
-            openPicker();
-          }
-        }}
         className={cn(
-          "relative overflow-hidden rounded-lg border border-dashed border-border transition-colors hover:border-sub focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-lime/80 focus-visible:ring-offset-2 focus-visible:ring-offset-bg",
+          "relative overflow-hidden rounded-lg border border-dashed border-border transition-colors hover:border-sub",
           loading && "opacity-50 cursor-wait",
         )}
       >
@@ -186,7 +178,10 @@ export default function VideoUpload({
             </div>
           </div>
         ) : (
-          <div className="aspect-video flex flex-col items-center justify-center gap-2 bg-s2">
+          <label
+            htmlFor={inputId}
+            className="flex aspect-video cursor-pointer flex-col items-center justify-center gap-2 bg-s2"
+          >
             {loading ? (
               <div className="w-6 h-6 border-2 border-lime/30 border-t-lime rounded-full animate-spin" />
             ) : (
@@ -195,11 +190,23 @@ export default function VideoUpload({
                 <p className="text-sm text-sub">Kliknout a nahrát video</p>
               </>
             )}
-          </div>
+          </label>
         )}
       </div>
 
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          onClick={openPicker}
+          disabled={loading}
+          className="inline-flex items-center justify-center rounded-md bg-s3 px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-s4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-lime/80 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {preview ? "Vybrat jiné video" : "Vybrat video"}
+        </button>
+      </div>
+
       <input
+        id={inputId}
         ref={inputRef}
         type="file"
         accept="video/mp4,video/webm,video/quicktime,video/*"

@@ -29,9 +29,7 @@ export default function ImageUpload({
   const localPreviewRef = useRef<string | null>(null);
 
   function openPicker() {
-    if (!loading) {
-      inputRef.current?.click();
-    }
+    if (!loading) inputRef.current?.click();
   }
 
   useEffect(() => {
@@ -146,19 +144,10 @@ export default function ImageUpload({
       <label className="block text-sm font-medium text-white">{label}</label>
 
       <div
-        role="button"
-        tabIndex={loading ? -1 : 0}
         onDrop={handleDrop}
         onDragOver={(e) => e.preventDefault()}
-        onClick={openPicker}
-        onKeyDown={(e) => {
-          if (e.key === "Enter" || e.key === " ") {
-            e.preventDefault();
-            openPicker();
-          }
-        }}
         className={cn(
-          "relative block w-full overflow-hidden rounded-lg border border-dashed border-border text-left transition-colors hover:border-sub focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-lime/80 focus-visible:ring-offset-2 focus-visible:ring-offset-bg",
+          "relative block w-full overflow-hidden rounded-lg border border-dashed border-border text-left transition-colors hover:border-sub",
           loading && "opacity-50 cursor-wait"
         )}
       >
@@ -190,12 +179,15 @@ export default function ImageUpload({
             </button>
             <div className="pointer-events-none absolute inset-x-0 bottom-0 flex justify-start p-3">
               <span className="rounded-full bg-black/75 px-3 py-1 text-xs font-medium text-white">
-                Vybrat jiný obrázek
+                Preview
               </span>
             </div>
           </div>
         ) : (
-          <div className="h-40 flex flex-col items-center justify-center gap-2 bg-s2">
+          <label
+            htmlFor={inputId}
+            className="flex h-40 cursor-pointer flex-col items-center justify-center gap-2 bg-s2 focus-visible:outline-none"
+          >
             {loading ? (
               <div className="w-6 h-6 border-2 border-lime/30 border-t-lime rounded-full animate-spin" />
             ) : (
@@ -204,8 +196,19 @@ export default function ImageUpload({
                 <p className="text-sm text-sub">Přetáhnout nebo kliknout</p>
               </>
             )}
-          </div>
+          </label>
         )}
+      </div>
+
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          onClick={openPicker}
+          disabled={loading}
+          className="inline-flex items-center justify-center rounded-md bg-s3 px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-s4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-lime/80 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {preview ? "Vybrat jiný obrázek" : "Vybrat obrázek"}
+        </button>
       </div>
 
       <input

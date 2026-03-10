@@ -25,6 +25,12 @@ export default function VideoUpload({
   const inputRef = useRef<HTMLInputElement>(null);
   const localPreviewRef = useRef<string | null>(null);
 
+  function openPicker() {
+    if (!loading) {
+      inputRef.current?.click();
+    }
+  }
+
   useEffect(() => {
     let cancelled = false;
 
@@ -131,9 +137,17 @@ export default function VideoUpload({
       <label className="block text-sm font-medium text-white">{label}</label>
 
       <div
-        onClick={() => !loading && inputRef.current?.click()}
+        role="button"
+        tabIndex={loading ? -1 : 0}
+        onClick={openPicker}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            openPicker();
+          }
+        }}
         className={cn(
-          "relative border border-dashed border-border rounded-lg overflow-hidden cursor-pointer transition-colors hover:border-sub",
+          "relative overflow-hidden rounded-lg border border-dashed border-border transition-colors hover:border-sub focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-lime/80 focus-visible:ring-offset-2 focus-visible:ring-offset-bg",
           loading && "opacity-50 cursor-wait",
         )}
       >
@@ -141,12 +155,12 @@ export default function VideoUpload({
           <div className="relative aspect-video bg-s2 group">
             <video
               src={preview}
-              controls
               muted
               playsInline
-              className="w-full h-full object-cover"
+              className="pointer-events-none h-full w-full object-cover"
             />
-            <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 to-transparent px-4 py-3 opacity-0 transition-opacity group-hover:opacity-100">
+            <div className="pointer-events-none absolute inset-0 bg-black/45 opacity-0 transition-opacity group-hover:opacity-100" />
+            <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 to-transparent px-4 py-3 opacity-0 transition-opacity group-hover:opacity-100">
               <p className="text-white text-sm">Kliknout pro změnu videa</p>
             </div>
             <button
@@ -161,9 +175,15 @@ export default function VideoUpload({
                 onUpload("");
               }}
               className="absolute top-2 right-2 w-7 h-7 bg-black/70 rounded-full flex items-center justify-center text-white hover:bg-black transition-colors"
+              aria-label="Odebrat video"
             >
               <X size={12} />
             </button>
+            <div className="pointer-events-none absolute inset-x-0 bottom-0 flex justify-start p-3">
+              <span className="rounded-full bg-black/75 px-3 py-1 text-xs font-medium text-white">
+                Vybrat jiné video
+              </span>
+            </div>
           </div>
         ) : (
           <div className="aspect-video flex flex-col items-center justify-center gap-2 bg-s2">

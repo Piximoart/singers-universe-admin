@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { Upload, X } from "lucide-react";
 import { cn } from "@/lib/cn";
 
@@ -21,11 +21,18 @@ export default function ImageUpload({
   accept = "image/*",
   hint,
 }: ImageUploadProps) {
+  const inputId = useId();
   const [preview, setPreview] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
   const localPreviewRef = useRef<string | null>(null);
+
+  function openPicker() {
+    if (!loading) {
+      inputRef.current?.click();
+    }
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -139,11 +146,19 @@ export default function ImageUpload({
       <label className="block text-sm font-medium text-white">{label}</label>
 
       <div
+        role="button"
+        tabIndex={loading ? -1 : 0}
         onDrop={handleDrop}
         onDragOver={(e) => e.preventDefault()}
-        onClick={() => !loading && inputRef.current?.click()}
+        onClick={openPicker}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            openPicker();
+          }
+        }}
         className={cn(
-          "relative border border-dashed border-border rounded-lg overflow-hidden cursor-pointer transition-colors hover:border-sub",
+          "relative block w-full overflow-hidden rounded-lg border border-dashed border-border text-left transition-colors hover:border-sub focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-lime/80 focus-visible:ring-offset-2 focus-visible:ring-offset-bg",
           loading && "opacity-50 cursor-wait"
         )}
       >
@@ -154,7 +169,7 @@ export default function ImageUpload({
               alt="Preview"
               className="w-full h-full object-cover"
             />
-            <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+            <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/60 opacity-0 transition-opacity group-hover:opacity-100">
               <p className="text-white text-sm">Kliknout pro změnu</p>
             </div>
             <button
@@ -169,9 +184,15 @@ export default function ImageUpload({
                 onUpload("");
               }}
               className="absolute top-2 right-2 w-6 h-6 bg-black/70 rounded-full flex items-center justify-center text-white hover:bg-black transition-colors"
+              aria-label="Odebrat obrázek"
             >
               <X size={12} />
             </button>
+            <div className="pointer-events-none absolute inset-x-0 bottom-0 flex justify-start p-3">
+              <span className="rounded-full bg-black/75 px-3 py-1 text-xs font-medium text-white">
+                Vybrat jiný obrázek
+              </span>
+            </div>
           </div>
         ) : (
           <div className="h-40 flex flex-col items-center justify-center gap-2 bg-s2">
@@ -188,6 +209,7 @@ export default function ImageUpload({
       </div>
 
       <input
+        id={inputId}
         ref={inputRef}
         type="file"
         accept={accept}

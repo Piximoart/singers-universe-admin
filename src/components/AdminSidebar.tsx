@@ -16,6 +16,7 @@ import { cn } from "@/lib/cn";
 
 const navItems = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/homepage", label: "Homepage Hero", icon: ImageIcon },
   { href: "/singers", label: "Zpěváci", icon: Mic2 },
   { href: "/albums", label: "Alba", icon: Disc3 },
   { href: "/tracks", label: "Tracky", icon: Music },
@@ -33,15 +34,15 @@ export default function AdminSidebar() {
   const pathname = usePathname();
 
   return (
-    <aside className="w-56 min-h-screen bg-s1 border-r border-border flex flex-col">
+    <aside className="w-56 min-h-screen bg-s1 flex flex-col">
       {/* Logo */}
-      <div className="px-4 py-5 border-b border-border">
+      <div className="px-4 py-5 bg-s2">
         <div className="flex items-center gap-2.5">
-          <div className="w-8 h-8 rounded-md bg-s3 border border-border flex items-center justify-center">
+          <div className="w-8 h-8 rounded-md bg-s3 flex items-center justify-center">
             <span className="text-lime text-xs font-bold">SU</span>
           </div>
           <div>
-            <p className="text-xs font-semibold text-white">Singers Universe</p>
+            <p className="text-xs font-semibold text-white font-display">Singers Universe</p>
             <p className="text-[10px] text-sub">Admin Panel</p>
           </div>
         </div>
@@ -72,10 +73,10 @@ export default function AdminSidebar() {
       </nav>
 
       {/* Logout */}
-      <div className="px-2 py-3 border-t border-border">
+      <div className="px-2 py-3 bg-s2/50">
         <button
           onClick={handleLogout}
-          className="flex items-center gap-3 w-full px-3 py-2 rounded-md text-sm text-sub hover:text-white hover:bg-s2 transition-colors"
+          className="flex items-center gap-3 w-full px-3 py-2 rounded-md text-sm text-sub hover:text-white hover:bg-s3 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-lime/70"
         >
           <LogOut size={16} strokeWidth={1.5} />
           Odhlásit se

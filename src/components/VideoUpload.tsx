@@ -1,26 +1,24 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
-import { Upload, X } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { Clapperboard, X } from "lucide-react";
 import { cn } from "@/lib/cn";
 
-interface ImageUploadProps {
+interface VideoUploadProps {
   label: string;
   currentUrl?: string;
   onUpload: (url: string) => void;
-  uploadPath: string; // např. "avatars/vexa.jpg"
-  accept?: string;
+  uploadKey: string;
   hint?: string;
 }
 
-export default function ImageUpload({
+export default function VideoUpload({
   label,
   currentUrl,
   onUpload,
-  uploadPath,
-  accept = "image/*",
+  uploadKey,
   hint,
-}: ImageUploadProps) {
+}: VideoUploadProps) {
   const [preview, setPreview] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -38,7 +36,7 @@ export default function ImageUpload({
 
       try {
         const res = await fetch(
-          `/api/upload/image?value=${encodeURIComponent(value)}`,
+          `/api/upload/media?value=${encodeURIComponent(value)}`,
         );
         const data = await res.json();
 
@@ -87,7 +85,6 @@ export default function ImageUpload({
       localPreviewRef.current = null;
     }
 
-    // Okamžitý lokální preview — nezávisí na serveru
     const localUrl = URL.createObjectURL(file);
     localPreviewRef.current = localUrl;
     setPreview(localUrl);
@@ -95,9 +92,10 @@ export default function ImageUpload({
     try {
       const formData = new FormData();
       formData.append("file", file);
-      formData.append("key", uploadPath);
+      formData.append("key", uploadKey);
+      formData.append("isPrivate", "false");
 
-      const res = await fetch("/api/upload/image", {
+      const res = await fetch("/api/upload/media", {
         method: "POST",
         body: formData,
       });
@@ -128,34 +126,28 @@ export default function ImageUpload({
     }
   }
 
-  function handleDrop(e: React.DragEvent) {
-    e.preventDefault();
-    const file = e.dataTransfer.files[0];
-    if (file) handleFile(file);
-  }
-
   return (
     <div className="space-y-1.5">
       <label className="block text-sm font-medium text-white">{label}</label>
 
       <div
-        onDrop={handleDrop}
-        onDragOver={(e) => e.preventDefault()}
         onClick={() => !loading && inputRef.current?.click()}
         className={cn(
           "relative border border-dashed border-border rounded-lg overflow-hidden cursor-pointer transition-colors hover:border-sub",
-          loading && "opacity-50 cursor-wait"
+          loading && "opacity-50 cursor-wait",
         )}
       >
         {preview ? (
-          <div className="relative h-40 group">
-            <img
+          <div className="relative aspect-video bg-s2 group">
+            <video
               src={preview}
-              alt="Preview"
+              controls
+              muted
+              playsInline
               className="w-full h-full object-cover"
             />
-            <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-              <p className="text-white text-sm">Kliknout pro změnu</p>
+            <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 to-transparent px-4 py-3 opacity-0 transition-opacity group-hover:opacity-100">
+              <p className="text-white text-sm">Kliknout pro změnu videa</p>
             </div>
             <button
               type="button"
@@ -168,19 +160,19 @@ export default function ImageUpload({
                 setPreview(null);
                 onUpload("");
               }}
-              className="absolute top-2 right-2 w-6 h-6 bg-black/70 rounded-full flex items-center justify-center text-white hover:bg-black transition-colors"
+              className="absolute top-2 right-2 w-7 h-7 bg-black/70 rounded-full flex items-center justify-center text-white hover:bg-black transition-colors"
             >
               <X size={12} />
             </button>
           </div>
         ) : (
-          <div className="h-40 flex flex-col items-center justify-center gap-2 bg-s2">
+          <div className="aspect-video flex flex-col items-center justify-center gap-2 bg-s2">
             {loading ? (
               <div className="w-6 h-6 border-2 border-lime/30 border-t-lime rounded-full animate-spin" />
             ) : (
               <>
-                <Upload size={24} className="text-sub" strokeWidth={1.5} />
-                <p className="text-sm text-sub">Přetáhnout nebo kliknout</p>
+                <Clapperboard size={24} className="text-sub" strokeWidth={1.5} />
+                <p className="text-sm text-sub">Kliknout a nahrát video</p>
               </>
             )}
           </div>
@@ -190,7 +182,7 @@ export default function ImageUpload({
       <input
         ref={inputRef}
         type="file"
-        accept={accept}
+        accept="video/mp4,video/webm,video/quicktime,video/*"
         className="hidden"
         onChange={(e) => {
           const file = e.target.files?.[0];

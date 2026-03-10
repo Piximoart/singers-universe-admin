@@ -1,5 +1,25 @@
 import { NextRequest, NextResponse } from "next/server";
-import { uploadImage } from "@/lib/storage";
+import { resolveMediaPreviewUrl, toMediaReference, uploadImage } from "@/lib/storage";
+
+export async function GET(request: NextRequest) {
+  try {
+    const value = request.nextUrl.searchParams.get("value");
+    if (!value?.trim()) {
+      return NextResponse.json({ error: "Chybí value" }, { status: 400 });
+    }
+
+    const storedUrl = toMediaReference(value, "public");
+    const previewUrl = await resolveMediaPreviewUrl(storedUrl, "public");
+
+    return NextResponse.json({ storedUrl, previewUrl: previewUrl ?? null });
+  } catch (err) {
+    console.error("Image resolve error:", err);
+    return NextResponse.json(
+      { error: "Nepodařilo se připravit preview URL" },
+      { status: 500 },
+    );
+  }
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -37,9 +57,10 @@ export async function POST(request: NextRequest) {
     }
 
     const buffer = Buffer.from(await file.arrayBuffer());
-    const url = await uploadImage(key, buffer, file.type);
+    const storedUrl = await uploadImage(key, buffer, file.type);
+    const previewUrl = await resolveMediaPreviewUrl(storedUrl, "public");
 
-    return NextResponse.json({ url });
+    return NextResponse.json({ storedUrl, previewUrl: previewUrl ?? null });
   } catch (err) {
     console.error("Image upload error:", err);
     return NextResponse.json({ error: "Upload selhal" }, { status: 500 });

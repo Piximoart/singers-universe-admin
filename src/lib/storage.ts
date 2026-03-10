@@ -24,7 +24,7 @@ const BUCKET_PRIVATE =
 const S3_ENDPOINT_RESOLVED =
   process.env.S3_ENDPOINT || "https://eu-central-2.storage.impossibleapi.net";
 
-type MediaBucket = "public" | "private";
+export type MediaBucket = "public" | "private";
 
 const STORAGE_URL = new URL(S3_ENDPOINT_RESOLVED);
 
@@ -124,6 +124,15 @@ export function toMediaReference(value: string, defaultBucket: MediaBucket = "pu
   const parsed = parseMediaReference(value, defaultBucket);
   if (!parsed) return value.trim();
   return `${parsed.bucket}://${parsed.objectKey}`;
+}
+
+export function toMediaObjectKey(
+  value: string,
+  defaultBucket: MediaBucket = "public",
+): string {
+  const parsed = parseMediaReference(value, defaultBucket);
+  if (!parsed) return trimSlashes(value);
+  return parsed.objectKey;
 }
 
 export async function resolveMediaPreviewUrl(

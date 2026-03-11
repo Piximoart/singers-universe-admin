@@ -44,7 +44,6 @@ export default function VideoUpload({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [status, setStatus] = useState<UploadAssetStatus>("ready");
-  const inputRef = useRef<HTMLInputElement>(null);
   const localPreviewRef = useRef<string | null>(null);
   const pollTimerRef = useRef<number | null>(null);
 
@@ -62,12 +61,6 @@ export default function VideoUpload({
     if (pollTimerRef.current) {
       window.clearTimeout(pollTimerRef.current);
       pollTimerRef.current = null;
-    }
-  }
-
-  function openPicker() {
-    if (!loading) {
-      inputRef.current?.click();
     }
   }
 
@@ -187,7 +180,7 @@ export default function VideoUpload({
         )}
       >
         {preview ? (
-          <div className="relative aspect-video bg-s2 group">
+          <label htmlFor={inputId} className={cn("relative block aspect-video bg-s2 group", loading && "cursor-wait")}>
             <video
               src={preview}
               muted
@@ -201,6 +194,7 @@ export default function VideoUpload({
             <button
               type="button"
               onClick={(e) => {
+                e.preventDefault();
                 e.stopPropagation();
                 if (localPreviewRef.current) {
                   URL.revokeObjectURL(localPreviewRef.current);
@@ -226,11 +220,17 @@ export default function VideoUpload({
                 </span>
               ) : null}
             </div>
-          </div>
+          </label>
         ) : (
           <label
             htmlFor={inputId}
-            className="flex aspect-video cursor-pointer flex-col items-center justify-center gap-2 bg-s2"
+            onClick={(e) => {
+              if (loading) e.preventDefault();
+            }}
+            className={cn(
+              "flex aspect-video cursor-pointer flex-col items-center justify-center gap-2 bg-s2",
+              loading && "cursor-wait",
+            )}
           >
             {loading ? (
               <div className="w-6 h-6 border-2 border-lime/30 border-t-lime rounded-full animate-spin" />
@@ -245,22 +245,23 @@ export default function VideoUpload({
       </div>
 
       <div className="flex items-center gap-2">
-        <button
-          type="button"
-          onClick={openPicker}
-          disabled={loading}
+        <label
+          htmlFor={inputId}
+          onClick={(e) => {
+            if (loading) e.preventDefault();
+          }}
           className="inline-flex items-center justify-center rounded-md bg-s3 px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-s4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-lime/80 disabled:cursor-not-allowed disabled:opacity-50"
+          aria-disabled={loading}
         >
           {preview ? "Vybrat jiné video" : "Vybrat video"}
-        </button>
+        </label>
       </div>
 
       <input
         id={inputId}
-        ref={inputRef}
         type="file"
         accept="video/mp4,video/webm,video/quicktime,video/*"
-        className="hidden"
+        className="sr-only"
         onChange={(e) => {
           const file = e.target.files?.[0];
           if (file) void handleFile(file);

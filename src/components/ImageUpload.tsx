@@ -44,7 +44,6 @@ export default function ImageUpload({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [status, setStatus] = useState<UploadAssetStatus>("ready");
-  const inputRef = useRef<HTMLInputElement>(null);
   const localPreviewRef = useRef<string | null>(null);
   const pollTimerRef = useRef<number | null>(null);
 
@@ -58,10 +57,6 @@ export default function ImageUpload({
       window.clearTimeout(pollTimerRef.current);
       pollTimerRef.current = null;
     }
-  }
-
-  function openPicker() {
-    if (!loading) inputRef.current?.click();
   }
 
   useEffect(() => {
@@ -202,7 +197,7 @@ export default function ImageUpload({
         )}
       >
         {preview ? (
-          <div className="relative h-40 group">
+          <label htmlFor={inputId} className={cn("relative block h-40 group", loading && "cursor-wait")}>
             <img src={preview} alt="Preview" className="w-full h-full object-cover" />
             <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/60 opacity-0 transition-opacity group-hover:opacity-100">
               <p className="text-white text-sm">Kliknout pro změnu</p>
@@ -210,6 +205,7 @@ export default function ImageUpload({
             <button
               type="button"
               onClick={(e) => {
+                e.preventDefault();
                 e.stopPropagation();
                 if (localPreviewRef.current) {
                   URL.revokeObjectURL(localPreviewRef.current);
@@ -235,11 +231,17 @@ export default function ImageUpload({
                 </span>
               ) : null}
             </div>
-          </div>
+          </label>
         ) : (
           <label
             htmlFor={inputId}
-            className="flex h-40 cursor-pointer flex-col items-center justify-center gap-2 bg-s2 focus-visible:outline-none"
+            onClick={(e) => {
+              if (loading) e.preventDefault();
+            }}
+            className={cn(
+              "flex h-40 cursor-pointer flex-col items-center justify-center gap-2 bg-s2 focus-visible:outline-none",
+              loading && "cursor-wait",
+            )}
           >
             {loading ? (
               <div className="w-6 h-6 border-2 border-lime/30 border-t-lime rounded-full animate-spin" />
@@ -254,22 +256,23 @@ export default function ImageUpload({
       </div>
 
       <div className="flex items-center gap-2">
-        <button
-          type="button"
-          onClick={openPicker}
-          disabled={loading}
+        <label
+          htmlFor={inputId}
+          onClick={(e) => {
+            if (loading) e.preventDefault();
+          }}
           className="inline-flex items-center justify-center rounded-md bg-s3 px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-s4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-lime/80 disabled:cursor-not-allowed disabled:opacity-50"
+          aria-disabled={loading}
         >
           {preview ? "Vybrat jiný obrázek" : "Vybrat obrázek"}
-        </button>
+        </label>
       </div>
 
       <input
         id={inputId}
-        ref={inputRef}
         type="file"
         accept={accept}
-        className="hidden"
+        className="sr-only"
         onChange={(e) => {
           const file = e.target.files?.[0];
           if (file) void handleFile(file);

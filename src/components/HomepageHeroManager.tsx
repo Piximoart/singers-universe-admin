@@ -1,12 +1,14 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { ArrowDown, ArrowUp, Plus, Trash2 } from "lucide-react";
 import FormField from "@/components/FormField";
 import ImageUpload from "@/components/ImageUpload";
 import VideoUpload from "@/components/VideoUpload";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
+
+type UploadStatus = "processing" | "ready" | "failed";
 
 type HeroSlideDraft = {
   id: string;
@@ -15,15 +17,14 @@ type HeroSlideDraft = {
   ctaHref: string;
   mediaObjectKey: string;
   posterObjectKey: string;
-};
-
-type HeroSlideApi = HeroSlideDraft & {
   mediaPreviewUrl: string | null;
   posterPreviewUrl: string | null;
+  mediaStatus: UploadStatus;
+  mediaError: string | null;
 };
 
 type LoadHomepageHeroResponse = {
-  slides?: HeroSlideApi[];
+  slides?: Partial<HeroSlideDraft>[];
   setupRequired?: boolean;
   setupMessage?: string;
   error?: string;
@@ -33,7 +34,7 @@ function toObjectKey(value: string) {
   return value.replace(/^(public|private):\/\//, "").replace(/^\/+/, "");
 }
 
-function createDraft(): HeroSlideApi {
+function createDraft(): HeroSlideDraft {
   const id =
     typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
       ? crypto.randomUUID()
@@ -48,16 +49,38 @@ function createDraft(): HeroSlideApi {
     posterObjectKey: "",
     mediaPreviewUrl: null,
     posterPreviewUrl: null,
+    mediaStatus: "ready",
+    mediaError: null,
+  };
+}
+
+function normalizeSlide(raw: Partial<HeroSlideDraft> | undefined): HeroSlideDraft {
+  return {
+    ...createDraft(),
+    ...raw,
+    mediaStatus: raw?.mediaStatus ?? "ready",
+    mediaError: raw?.mediaError ?? null,
   };
 }
 
 export default function HomepageHeroManager() {
-  const [slides, setSlides] = useState<HeroSlideApi[]>([]);
+  const [slides, setSlides] = useState<HeroSlideDraft[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [setupMessage, setSetupMessage] = useState("");
+
+  const hasBlockingMediaState = useMemo(
+    () =>
+      slides.some(
+        (slide) =>
+          !slide.mediaObjectKey ||
+          slide.mediaStatus === "processing" ||
+          slide.mediaStatus === "failed",
+      ),
+    [slides],
+  );
 
   async function load() {
     setLoading(true);
@@ -68,7 +91,7 @@ export default function HomepageHeroManager() {
       const data = (await res.json()) as LoadHomepageHeroResponse;
       if (!res.ok) throw new Error(data.error || "Nepodařilo se načíst hero");
       setSetupMessage(data.setupRequired ? data.setupMessage || "" : "");
-      setSlides(Array.isArray(data.slides) ? data.slides : []);
+      setSlides(Array.isArray(data.slides) ? data.slides.map(normalizeSlide) : []);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Nepodařilo se načíst hero");
     } finally {
@@ -80,7 +103,7 @@ export default function HomepageHeroManager() {
     void load();
   }, []);
 
-  function updateSlide(id: string, patch: Partial<HeroSlideApi>) {
+  function updateSlide(id: string, patch: Partial<HeroSlideDraft>) {
     setSlides((current) =>
       current.map((slide) => (slide.id === id ? { ...slide, ...patch } : slide)),
     );
@@ -136,7 +159,7 @@ export default function HomepageHeroManager() {
         <div>
           <h1 className="text-2xl font-bold text-white font-display">Homepage Hero</h1>
           <p className="text-sub text-sm mt-1">
-            Správa media carouselu pro veřejný hero. Ukládá se přes public object keys do DB.
+            Správa media carouselu pro veřejný hero. Upload jde přes private master a public delivery assety.
           </p>
         </div>
 
@@ -148,7 +171,7 @@ export default function HomepageHeroManager() {
             <Plus size={16} />
             Přidat slide
           </Button>
-          <Button onClick={save} loading={saving}>
+          <Button onClick={save} loading={saving} disabled={hasBlockingMediaState}>
             Uložit hero
           </Button>
         </div>
@@ -157,6 +180,11 @@ export default function HomepageHeroManager() {
       {error ? <p className="text-sm text-red-400">{error}</p> : null}
       {notice ? <p className="text-sm text-lime">{notice}</p> : null}
       {setupMessage ? <p className="text-sm text-amber-300">{setupMessage}</p> : null}
+      {hasBlockingMediaState && slides.length > 0 ? (
+        <p className="text-sm text-amber-300">
+          Dokud nejsou všechny assety ve stavu ready, hero nejde uložit.
+        </p>
+      ) : null}
 
       {loading ? (
         <Card className="p-6 text-sub">Načítám homepage hero…</Card>
@@ -210,6 +238,8 @@ export default function HomepageHeroManager() {
                         kind: value === "video" ? "video" : "image",
                         posterObjectKey: value === "video" ? slide.posterObjectKey : "",
                         posterPreviewUrl: value === "video" ? slide.posterPreviewUrl : null,
+                        mediaStatus: "ready",
+                        mediaError: null,
                       })
                     }
                     options={[
@@ -252,20 +282,20 @@ export default function HomepageHeroManager() {
                             mediaPreviewUrl: null,
                           })
                         }
-                        hint="Uploaduje se do public storage, aby ho mohl bezpečně renderovat veřejný hero carousel."
-                      />
-                      <ImageUpload
-                        label="Poster image (volitelné)"
-                        currentUrl={slide.posterObjectKey ? `public://${slide.posterObjectKey}` : ""}
-                        onUpload={(value) =>
+                        onUploadStateChange={(state) =>
                           updateSlide(slide.id, {
-                            posterObjectKey: toObjectKey(value),
-                            posterPreviewUrl: null,
+                            mediaStatus: state.status,
+                            mediaError: state.error ?? null,
+                            posterObjectKey: state.posterStoredUrl
+                              ? toObjectKey(state.posterStoredUrl)
+                              : slide.posterObjectKey,
                           })
                         }
-                        uploadPath={`homepage/hero/${slide.id}/poster-${Date.now()}.jpg`}
-                        hint="Poster se použije před přehráním videa nebo pokud video dočasně selže."
+                        hint="Video se nahraje jako private master. Backend z něj připraví poster, fallback MP4 a adaptivní stream."
                       />
+                      <div className="rounded-lg bg-s2 px-4 py-3 text-xs text-sub">
+                        Poster se generuje automaticky z videa. Public hero nikdy nepřehrává originální upload.
+                      </div>
                     </>
                   ) : (
                     <ImageUpload
@@ -277,10 +307,17 @@ export default function HomepageHeroManager() {
                           mediaPreviewUrl: null,
                         })
                       }
+                      onUploadStateChange={(state) =>
+                        updateSlide(slide.id, {
+                          mediaStatus: state.status,
+                          mediaError: state.error ?? null,
+                        })
+                      }
                       uploadPath={`homepage/hero/${slide.id}/image-${Date.now()}.jpg`}
-                      hint="Doporučený široký cinematic záběr pro full-screen hero."
+                      hint="Nahraje se private master a worker z něj připraví public display.webp + thumb.webp."
                     />
                   )}
+                  {slide.mediaError ? <p className="text-xs text-red-400">{slide.mediaError}</p> : null}
                 </div>
               </div>
             </Card>

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { extractMediaAssetId, getMediaAssetById, resolveMediaAssetPreviewState } from "@/lib/mediaAssets";
 import { supabaseAdmin } from "@/lib/supabase";
 import {
   resolveMediaPreviewUrl,
@@ -93,17 +94,23 @@ export async function GET() {
     rawSlides.flatMap((item, index) => {
       const slide = normalizeHeroSlide(item, index);
       return slide ? [slide] : [];
-    }).map(async (slide) => ({
-      ...slide,
-      mediaStoredUrl: toMediaReference(slide.mediaObjectKey, "public"),
-      mediaPreviewUrl: await resolveMediaPreviewUrl(slide.mediaObjectKey, "public"),
-      posterStoredUrl: slide.posterObjectKey
-        ? toMediaReference(slide.posterObjectKey, "public")
-        : null,
-      posterPreviewUrl: slide.posterObjectKey
-        ? await resolveMediaPreviewUrl(slide.posterObjectKey, "public")
-        : null,
-    })),
+    }).map(async (slide) => {
+      const assetState = await resolveMediaAssetPreviewState(`public://${slide.mediaObjectKey}`);
+
+      return {
+        ...slide,
+        mediaStoredUrl: toMediaReference(slide.mediaObjectKey, "public"),
+        mediaPreviewUrl: assetState?.previewUrl ?? (await resolveMediaPreviewUrl(slide.mediaObjectKey, "public")),
+        posterStoredUrl: slide.posterObjectKey
+          ? toMediaReference(slide.posterObjectKey, "public")
+          : assetState?.posterStoredUrl ?? null,
+        posterPreviewUrl: slide.posterObjectKey
+          ? await resolveMediaPreviewUrl(slide.posterObjectKey, "public")
+          : null,
+        mediaStatus: assetState?.status ?? "ready",
+        mediaError: assetState?.error ?? null,
+      };
+    }),
   );
 
   return NextResponse.json({ slides });
@@ -131,6 +138,26 @@ export async function PUT(request: NextRequest) {
       { error: "Některé hero slides nejsou validní" },
       { status: 400 },
     );
+  }
+
+  for (const slide of slides) {
+    const assetId = extractMediaAssetId(`public://${slide.mediaObjectKey}`);
+    if (!assetId) continue;
+
+    const asset = await getMediaAssetById(assetId);
+    if (!asset) {
+      return NextResponse.json(
+        { error: `Chybí media asset pro slide ${slide.id}` },
+        { status: 400 },
+      );
+    }
+
+    if (asset.status !== "ready") {
+      return NextResponse.json(
+        { error: `Slide ${slide.id} ještě není hotový (${asset.status})` },
+        { status: 409 },
+      );
+    }
   }
 
   const { data: existing, error: existingError } = await supabaseAdmin

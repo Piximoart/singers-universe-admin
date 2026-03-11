@@ -1,5 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
-import { resolveMediaPreviewUrl, toMediaReference, uploadImage } from "@/lib/storage";
+import {
+  createImageDeliveryRef,
+  createMediaAsset,
+  isMediaAssetsSchemaMissingError,
+  resolveMediaAssetPreviewState,
+} from "@/lib/mediaAssets";
+import {
+  resolveMediaPreviewUrl,
+  toMediaReference,
+  uploadMediaBuffer,
+} from "@/lib/storage";
 
 export async function GET(request: NextRequest) {
   try {
@@ -8,10 +18,20 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "Chybí value" }, { status: 400 });
     }
 
+     const assetState = await resolveMediaAssetPreviewState(value.trim());
+     if (assetState) {
+       return NextResponse.json(assetState);
+     }
+
     const storedUrl = toMediaReference(value, "public");
     const previewUrl = await resolveMediaPreviewUrl(storedUrl, "public");
 
-    return NextResponse.json({ storedUrl, previewUrl: previewUrl ?? null });
+    return NextResponse.json({
+      storedUrl,
+      previewUrl: previewUrl ?? null,
+      status: "ready",
+      assetId: null,
+    });
   } catch (err) {
     console.error("Image resolve error:", err);
     return NextResponse.json(
@@ -57,12 +77,43 @@ export async function POST(request: NextRequest) {
     }
 
     const buffer = Buffer.from(await file.arrayBuffer());
-    const storedUrl = await uploadImage(key, buffer, file.type);
-    const previewUrl = await resolveMediaPreviewUrl(storedUrl, "public");
+    const asset = await createMediaAsset({
+      kind: "image",
+      fileName: file.name || key,
+      contentType: file.type,
+    });
 
-    return NextResponse.json({ storedUrl, previewUrl: previewUrl ?? null });
+    await uploadMediaBuffer({
+      key: asset.master_object_key,
+      buffer,
+      contentType: file.type,
+      bucket: "private",
+    });
+
+    const previewUrl = await resolveMediaPreviewUrl(
+      `private://${asset.master_object_key}`,
+      "private",
+    );
+    const storedUrl = createImageDeliveryRef(asset.id);
+
+    return NextResponse.json({
+      storedUrl,
+      previewUrl: previewUrl ?? null,
+      status: asset.status,
+      assetId: asset.id,
+    });
   } catch (err) {
     console.error("Image upload error:", err);
+    if (isMediaAssetsSchemaMissingError(err)) {
+      return NextResponse.json(
+        {
+          error:
+            "Media pipeline zatim neni pripravena v databazi. Nejprve je potreba aplikovat migraci media_assets.",
+          setupRequired: true,
+        },
+        { status: 503 },
+      );
+    }
     return NextResponse.json({ error: "Upload selhal" }, { status: 500 });
   }
 }

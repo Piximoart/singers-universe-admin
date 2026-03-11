@@ -4,14 +4,31 @@ import { useEffect, useId, useRef, useState } from "react";
 import { Upload, X } from "lucide-react";
 import { cn } from "@/lib/cn";
 
+type UploadAssetStatus = "processing" | "ready" | "failed";
+
+type UploadState = {
+  assetId: string | null;
+  status: UploadAssetStatus;
+  error?: string | null;
+};
+
 interface ImageUploadProps {
   label: string;
   currentUrl?: string;
   onUpload: (url: string) => void;
-  uploadPath: string; // např. "avatars/vexa.jpg"
+  uploadPath: string;
   accept?: string;
   hint?: string;
+  onUploadStateChange?: (state: UploadState) => void;
 }
+
+type UploadApiResponse = {
+  storedUrl?: string;
+  previewUrl?: string | null;
+  status?: UploadAssetStatus;
+  assetId?: string | null;
+  error?: string;
+};
 
 export default function ImageUpload({
   label,
@@ -20,62 +37,36 @@ export default function ImageUpload({
   uploadPath,
   accept = "image/*",
   hint,
+  onUploadStateChange,
 }: ImageUploadProps) {
   const inputId = useId();
   const [preview, setPreview] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [status, setStatus] = useState<UploadAssetStatus>("ready");
   const inputRef = useRef<HTMLInputElement>(null);
   const localPreviewRef = useRef<string | null>(null);
+  const pollTimerRef = useRef<number | null>(null);
+
+  function publishState(nextStatus: UploadAssetStatus, assetId: string | null, nextError?: string | null) {
+    setStatus(nextStatus);
+    onUploadStateChange?.({ status: nextStatus, assetId, error: nextError ?? null });
+  }
+
+  function clearPoll() {
+    if (pollTimerRef.current) {
+      window.clearTimeout(pollTimerRef.current);
+      pollTimerRef.current = null;
+    }
+  }
 
   function openPicker() {
     if (!loading) inputRef.current?.click();
   }
 
   useEffect(() => {
-    let cancelled = false;
-
-    async function resolvePreviewFromStoredValue(value: string) {
-      if (value.startsWith("blob:")) {
-        setPreview(value);
-        return;
-      }
-
-      try {
-        const res = await fetch(
-          `/api/upload/image?value=${encodeURIComponent(value)}`,
-        );
-        const data = await res.json();
-
-        if (!res.ok) {
-          throw new Error(data.error || "Nepodařilo se načíst preview");
-        }
-
-        if (!cancelled) {
-          setPreview(
-            typeof data.previewUrl === "string" && data.previewUrl
-              ? data.previewUrl
-              : value,
-          );
-        }
-      } catch {
-        if (!cancelled) setPreview(value);
-      }
-    }
-
-    if (currentUrl?.trim()) {
-      resolvePreviewFromStoredValue(currentUrl.trim());
-    } else {
-      setPreview(null);
-    }
-
     return () => {
-      cancelled = true;
-    };
-  }, [currentUrl]);
-
-  useEffect(() => {
-    return () => {
+      clearPoll();
       if (localPreviewRef.current) {
         URL.revokeObjectURL(localPreviewRef.current);
         localPreviewRef.current = null;
@@ -83,16 +74,62 @@ export default function ImageUpload({
     };
   }, []);
 
+  useEffect(() => {
+    let cancelled = false;
+
+    async function resolvePreviewFromStoredValue(value: string) {
+      try {
+        const res = await fetch(`/api/upload/image?value=${encodeURIComponent(value)}`);
+        const data = (await res.json()) as UploadApiResponse;
+
+        if (!res.ok) {
+          throw new Error(data.error || "Nepodařilo se načíst preview");
+        }
+
+        if (cancelled) return;
+
+        setPreview(typeof data.previewUrl === "string" && data.previewUrl ? data.previewUrl : value);
+        publishState(data.status ?? "ready", data.assetId ?? null, data.error ?? null);
+
+        if (data.status === "processing") {
+          clearPoll();
+          pollTimerRef.current = window.setTimeout(() => {
+            void resolvePreviewFromStoredValue(value);
+          }, 2000);
+        }
+      } catch {
+        if (!cancelled) {
+          setPreview(value);
+          publishState("failed", null, "Nepodařilo se načíst preview");
+        }
+      }
+    }
+
+    clearPoll();
+
+    if (currentUrl?.trim()) {
+      void resolvePreviewFromStoredValue(currentUrl.trim());
+    } else {
+      setPreview(null);
+      publishState("ready", null, null);
+    }
+
+    return () => {
+      cancelled = true;
+      clearPoll();
+    };
+  }, [currentUrl]);
+
   async function handleFile(file: File) {
     setError("");
     setLoading(true);
+    publishState("processing", null, null);
 
     if (localPreviewRef.current) {
       URL.revokeObjectURL(localPreviewRef.current);
       localPreviewRef.current = null;
     }
 
-    // Okamžitý lokální preview — nezávisí na serveru
     const localUrl = URL.createObjectURL(file);
     localPreviewRef.current = localUrl;
     setPreview(localUrl);
@@ -107,27 +144,40 @@ export default function ImageUpload({
         body: formData,
       });
 
-      const data = await res.json();
+      const data = (await res.json()) as UploadApiResponse;
       if (!res.ok) throw new Error(data.error || "Upload selhal");
+
+      const storedUrl = typeof data.storedUrl === "string" ? data.storedUrl : "";
+      if (!storedUrl) throw new Error("Upload nevrátil storedUrl");
+
+      onUpload(storedUrl);
 
       if (localPreviewRef.current === localUrl) {
         URL.revokeObjectURL(localUrl);
         localPreviewRef.current = null;
       }
 
-      const nextPreview =
-        typeof data.previewUrl === "string" && data.previewUrl
-          ? data.previewUrl
-          : null;
-      const nextStored =
-        typeof data.storedUrl === "string" && data.storedUrl
-          ? data.storedUrl
-          : "";
+      setPreview(typeof data.previewUrl === "string" && data.previewUrl ? data.previewUrl : null);
+      publishState(data.status ?? "ready", data.assetId ?? null, data.error ?? null);
 
-      setPreview(nextPreview);
-      onUpload(nextStored);
+      if (data.status === "processing") {
+        clearPoll();
+        pollTimerRef.current = window.setTimeout(() => {
+          void fetch(`/api/upload/image?value=${encodeURIComponent(storedUrl)}`)
+            .then((response) => response.json() as Promise<UploadApiResponse>)
+            .then((payload) => {
+              setPreview(typeof payload.previewUrl === "string" && payload.previewUrl ? payload.previewUrl : null);
+              publishState(payload.status ?? "ready", payload.assetId ?? null, payload.error ?? null);
+              if (payload.status === "processing") {
+                onUpload(storedUrl);
+              }
+            })
+            .catch(() => undefined);
+        }, 2000);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Upload selhal");
+      publishState("failed", null, err instanceof Error ? err.message : "Upload selhal");
     } finally {
       setLoading(false);
     }
@@ -136,7 +186,7 @@ export default function ImageUpload({
   function handleDrop(e: React.DragEvent) {
     e.preventDefault();
     const file = e.dataTransfer.files[0];
-    if (file) handleFile(file);
+    if (file) void handleFile(file);
   }
 
   return (
@@ -148,16 +198,12 @@ export default function ImageUpload({
         onDragOver={(e) => e.preventDefault()}
         className={cn(
           "relative block w-full overflow-hidden rounded-lg border border-dashed border-border text-left transition-colors hover:border-sub",
-          loading && "opacity-50 cursor-wait"
+          loading && "opacity-50 cursor-wait",
         )}
       >
         {preview ? (
           <div className="relative h-40 group">
-            <img
-              src={preview}
-              alt="Preview"
-              className="w-full h-full object-cover"
-            />
+            <img src={preview} alt="Preview" className="w-full h-full object-cover" />
             <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/60 opacity-0 transition-opacity group-hover:opacity-100">
               <p className="text-white text-sm">Kliknout pro změnu</p>
             </div>
@@ -169,7 +215,9 @@ export default function ImageUpload({
                   URL.revokeObjectURL(localPreviewRef.current);
                   localPreviewRef.current = null;
                 }
+                clearPoll();
                 setPreview(null);
+                publishState("ready", null, null);
                 onUpload("");
               }}
               className="absolute top-2 right-2 w-6 h-6 bg-black/70 rounded-full flex items-center justify-center text-white hover:bg-black transition-colors"
@@ -177,10 +225,15 @@ export default function ImageUpload({
             >
               <X size={12} />
             </button>
-            <div className="pointer-events-none absolute inset-x-0 bottom-0 flex justify-start p-3">
+            <div className="pointer-events-none absolute inset-x-0 bottom-0 flex justify-start gap-2 p-3">
               <span className="rounded-full bg-black/75 px-3 py-1 text-xs font-medium text-white">
                 Preview
               </span>
+              {status === "processing" ? (
+                <span className="rounded-full bg-amber-500/85 px-3 py-1 text-xs font-medium text-black">
+                  Processing
+                </span>
+              ) : null}
             </div>
           </div>
         ) : (
@@ -219,12 +272,15 @@ export default function ImageUpload({
         className="hidden"
         onChange={(e) => {
           const file = e.target.files?.[0];
-          if (file) handleFile(file);
+          if (file) void handleFile(file);
           e.target.value = "";
         }}
       />
 
       {hint && <p className="text-xs text-sub">{hint}</p>}
+      {status === "processing" ? (
+        <p className="text-xs text-amber-300">Zpracovávám optimalizovanou public verzi…</p>
+      ) : null}
       {error && <p className="text-xs text-red-400">{error}</p>}
     </div>
   );

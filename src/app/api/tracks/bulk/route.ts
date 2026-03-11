@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { requireAdminApiSession } from "@/lib/apiAuth";
 import { supabaseAdmin } from "@/lib/supabase";
 import { normalizeTrackInput } from "@/lib/tracks";
 
@@ -10,6 +11,9 @@ type BulkTrackResult = {
 };
 
 export async function POST(request: NextRequest) {
+  const auth = await requireAdminApiSession(request);
+  if (!auth.ok) return auth.response;
+
   try {
     const body = await request.json();
     const tracks = Array.isArray(body?.tracks) ? body.tracks : [];

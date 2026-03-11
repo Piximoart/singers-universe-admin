@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { requireAdminApiSession } from "@/lib/apiAuth";
 import {
   createMediaAsset,
   createVideoFallbackRef,
@@ -11,6 +12,7 @@ import {
   toMediaReference,
   uploadMediaBuffer,
 } from "@/lib/storage";
+import { validateUploadContentTypeForKey, validateUploadKey } from "@/lib/uploadPolicy";
 
 export const runtime = "nodejs";
 
@@ -47,15 +49,26 @@ function normalizeBoolean(value: FormDataEntryValue | null): boolean {
 }
 
 export async function POST(request: NextRequest) {
+  const auth = await requireAdminApiSession(request);
+  if (!auth.ok) return auth.response;
+
   try {
     const formData = await request.formData();
     const file = formData.get("file") as File | null;
-    const key = formData.get("key") as string | null;
+    const key = formData.get("key");
     const isPrivate = normalizeBoolean(formData.get("isPrivate"));
 
-    if (!file || !key?.trim()) {
+    if (!file || key === null) {
       return NextResponse.json(
         { error: "Chybí soubor nebo key" },
+        { status: 400 },
+      );
+    }
+
+    const keyValidation = validateUploadKey(key);
+    if (!keyValidation.ok) {
+      return NextResponse.json(
+        { error: keyValidation.error },
         { status: 400 },
       );
     }
@@ -75,14 +88,33 @@ export async function POST(request: NextRequest) {
     }
 
     const buffer = Buffer.from(await file.arrayBuffer());
-    const fallbackContentType = key.startsWith("video/") ? "video/mp4" : "audio/mpeg";
-    const contentType = file.type || fallbackContentType;
+    const fileExtension = file.name.split(".").pop()?.toLowerCase() ?? "";
+    const fallbackContentType = [
+      "mp4",
+      "mov",
+      "webm",
+      "avi",
+      "mkv",
+    ].includes(fileExtension)
+      ? "video/mp4"
+      : "audio/mpeg";
+    const contentType = (file.type || fallbackContentType).toLowerCase();
+    const contentTypeValidation = validateUploadContentTypeForKey(
+      keyValidation.key,
+      contentType,
+    );
+    if (!contentTypeValidation.ok) {
+      return NextResponse.json(
+        { error: contentTypeValidation.error },
+        { status: 400 },
+      );
+    }
 
     if (!isPrivate && contentType.startsWith("video/")) {
       try {
         const asset = await createMediaAsset({
           kind: "video",
-          fileName: file.name || key,
+          fileName: file.name || keyValidation.key,
           contentType,
         });
 
@@ -112,7 +144,7 @@ export async function POST(request: NextRequest) {
         }
 
         const storedUrl = await uploadMediaBuffer({
-          key: key.trim(),
+          key: keyValidation.key,
           buffer,
           contentType,
           bucket: "public",
@@ -132,7 +164,7 @@ export async function POST(request: NextRequest) {
     }
 
     const storedUrl = await uploadMediaBuffer({
-      key: key.trim(),
+      key: keyValidation.key,
       buffer,
       contentType,
       bucket: isPrivate ? "private" : "public",
@@ -157,6 +189,9 @@ export async function POST(request: NextRequest) {
 }
 
 export async function GET(request: NextRequest) {
+  const auth = await requireAdminApiSession(request);
+  if (!auth.ok) return auth.response;
+
   try {
     const value = request.nextUrl.searchParams.get("value");
     if (!value?.trim()) {

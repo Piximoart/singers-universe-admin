@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { requireAdminApiSession } from "@/lib/apiAuth";
 import {
   createImageDeliveryRef,
   createMediaAsset,
@@ -10,8 +11,12 @@ import {
   toMediaReference,
   uploadMediaBuffer,
 } from "@/lib/storage";
+import { validateUploadContentTypeForKey, validateUploadKey } from "@/lib/uploadPolicy";
 
 export async function GET(request: NextRequest) {
+  const auth = await requireAdminApiSession(request);
+  if (!auth.ok) return auth.response;
+
   try {
     const value = request.nextUrl.searchParams.get("value");
     if (!value?.trim()) {
@@ -49,14 +54,25 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
+  const auth = await requireAdminApiSession(request);
+  if (!auth.ok) return auth.response;
+
   try {
     const formData = await request.formData();
     const file = formData.get("file") as File | null;
-    const key = formData.get("key") as string | null;
+    const key = formData.get("key");
 
-    if (!file || !key) {
+    if (!file || key === null) {
       return NextResponse.json(
         { error: "Chybí soubor nebo klíč" },
+        { status: 400 },
+      );
+    }
+
+    const keyValidation = validateUploadKey(key);
+    if (!keyValidation.ok) {
+      return NextResponse.json(
+        { error: keyValidation.error },
         { status: 400 },
       );
     }
@@ -75,6 +91,17 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const contentTypeValidation = validateUploadContentTypeForKey(
+      keyValidation.key,
+      file.type,
+    );
+    if (!contentTypeValidation.ok) {
+      return NextResponse.json(
+        { error: contentTypeValidation.error },
+        { status: 400 },
+      );
+    }
+
     const maxSize = 10 * 1024 * 1024; // 10MB
     if (file.size > maxSize) {
       return NextResponse.json(
@@ -87,7 +114,7 @@ export async function POST(request: NextRequest) {
     try {
       const asset = await createMediaAsset({
         kind: "image",
-        fileName: file.name || key,
+        fileName: file.name || keyValidation.key,
         contentType: file.type,
       });
 
@@ -116,7 +143,7 @@ export async function POST(request: NextRequest) {
       }
 
       const storedUrl = await uploadMediaBuffer({
-        key: key.trim(),
+        key: keyValidation.key,
         buffer,
         contentType: file.type,
         bucket: "public",

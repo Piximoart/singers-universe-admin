@@ -1,7 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
+import { requireAdminApiSession } from "@/lib/apiAuth";
 import { supabaseAdmin } from "@/lib/supabase";
 
 export async function GET(request: NextRequest) {
+  const auth = await requireAdminApiSession(request);
+  if (!auth.ok) return auth.response;
+
   const singerId = request.nextUrl.searchParams.get("singerId")?.trim() || "";
 
   let query = supabaseAdmin
@@ -21,6 +25,9 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
+  const auth = await requireAdminApiSession(request);
+  if (!auth.ok) return auth.response;
+
   const body = await request.json();
 
   const { data, error } = await supabaseAdmin

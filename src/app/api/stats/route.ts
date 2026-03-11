@@ -1,7 +1,11 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
+import { requireAdminApiSession } from "@/lib/apiAuth";
 import { supabaseAdmin } from "@/lib/supabase";
 
-export async function GET() {
+export async function GET(request: NextRequest) {
+  const auth = await requireAdminApiSession(request);
+  if (!auth.ok) return auth.response;
+
   try {
     const [singers, albums, tracks, posts, users, subscriptions] =
       await Promise.all([

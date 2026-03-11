@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { requireAdminApiSession } from "@/lib/apiAuth";
 import { extractMediaAssetId, getMediaAssetById, resolveMediaAssetPreviewState } from "@/lib/mediaAssets";
 import { supabaseAdmin } from "@/lib/supabase";
 import {
@@ -64,7 +65,10 @@ function toDatabaseSlide(slide: HeroSlidePayload) {
   };
 }
 
-export async function GET() {
+export async function GET(request: NextRequest) {
+  const auth = await requireAdminApiSession(request);
+  if (!auth.ok) return auth.response;
+
   const { data, error } = await supabaseAdmin
     .from("homepage_featured_slots")
     .select("hero_media_slides")
@@ -117,6 +121,9 @@ export async function GET() {
 }
 
 export async function PUT(request: NextRequest) {
+  const auth = await requireAdminApiSession(request);
+  if (!auth.ok) return auth.response;
+
   const body = (await request.json().catch(() => null)) as {
     slides?: unknown;
   } | null;

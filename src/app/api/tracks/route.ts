@@ -1,8 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
+import { requireAdminApiSession } from "@/lib/apiAuth";
 import { supabaseAdmin } from "@/lib/supabase";
 import { normalizeTrackInput } from "@/lib/tracks";
 
-export async function GET() {
+export async function GET(request: NextRequest) {
+  const auth = await requireAdminApiSession(request);
+  if (!auth.ok) return auth.response;
+
   const { data, error } = await supabaseAdmin
     .from("tracks")
     .select("*, singers(stage_name), albums(title)")
@@ -14,6 +18,9 @@ export async function GET() {
 }
 
 export async function POST(request: NextRequest) {
+  const auth = await requireAdminApiSession(request);
+  if (!auth.ok) return auth.response;
+
   const body = await request.json();
   const { data: normalized, error: normalizeError } = normalizeTrackInput(body as Record<string, unknown>);
 

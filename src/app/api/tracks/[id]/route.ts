@@ -1,11 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
+import { requireAdminApiSession } from "@/lib/apiAuth";
 import { supabaseAdmin } from "@/lib/supabase";
 import { normalizeTrackInput } from "@/lib/tracks";
 
 export async function GET(
-  _req: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
+  const auth = await requireAdminApiSession(request);
+  if (!auth.ok) return auth.response;
+
   const { id } = await params;
   const { data, error } = await supabaseAdmin
     .from("tracks")
@@ -22,6 +26,9 @@ export async function PUT(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
+  const auth = await requireAdminApiSession(request);
+  if (!auth.ok) return auth.response;
+
   const { id } = await params;
   const body = await request.json();
   const { data: normalized, error: normalizeError } = normalizeTrackInput(
@@ -80,9 +87,12 @@ export async function PUT(
 }
 
 export async function DELETE(
-  _req: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
+  const auth = await requireAdminApiSession(request);
+  if (!auth.ok) return auth.response;
+
   const { id } = await params;
   const { error } = await supabaseAdmin.from("tracks").delete().eq("id", id);
 

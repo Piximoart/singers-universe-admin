@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { requireAdminApiSession } from "@/lib/apiAuth";
 import { supabaseAdmin } from "@/lib/supabase";
 import { listSingerStorageObjects } from "@/lib/storage";
 import {
@@ -35,6 +36,9 @@ function makeUniqueSlug(rawSlug: string, usedSlugs: Set<string>): string {
 }
 
 export async function GET(request: NextRequest) {
+  const auth = await requireAdminApiSession(request);
+  if (!auth.ok) return auth.response;
+
   const singerId = request.nextUrl.searchParams.get("singerId")?.trim() || "";
   if (!singerId) {
     return NextResponse.json({ error: "Missing singerId" }, { status: 400 });
@@ -96,6 +100,9 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
+  const auth = await requireAdminApiSession(request);
+  if (!auth.ok) return auth.response;
+
   try {
     const body = await request.json();
     const singerId = typeof body?.singerId === "string" ? body.singerId.trim() : "";

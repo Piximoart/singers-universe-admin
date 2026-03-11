@@ -79,32 +79,56 @@ export async function POST(request: NextRequest) {
     const contentType = file.type || fallbackContentType;
 
     if (!isPrivate && contentType.startsWith("video/")) {
-      const asset = await createMediaAsset({
-        kind: "video",
-        fileName: file.name || key,
-        contentType,
-      });
+      try {
+        const asset = await createMediaAsset({
+          kind: "video",
+          fileName: file.name || key,
+          contentType,
+        });
 
-      await uploadMediaBuffer({
-        key: asset.master_object_key,
-        buffer,
-        contentType,
-        bucket: "private",
-      });
+        await uploadMediaBuffer({
+          key: asset.master_object_key,
+          buffer,
+          contentType,
+          bucket: "private",
+        });
 
-      const previewUrl = await resolveMediaPreviewUrl(
-        `private://${asset.master_object_key}`,
-        "private",
-      );
+        const previewUrl = await resolveMediaPreviewUrl(
+          `private://${asset.master_object_key}`,
+          "private",
+        );
 
-      return NextResponse.json({
-        storedUrl: createVideoFallbackRef(asset.id),
-        mediaUrl: createVideoFallbackRef(asset.id),
-        posterStoredUrl: createVideoPosterRef(asset.id),
-        previewUrl,
-        status: asset.status,
-        assetId: asset.id,
-      });
+        return NextResponse.json({
+          storedUrl: createVideoFallbackRef(asset.id),
+          mediaUrl: createVideoFallbackRef(asset.id),
+          posterStoredUrl: createVideoPosterRef(asset.id),
+          previewUrl,
+          status: asset.status,
+          assetId: asset.id,
+        });
+      } catch (err) {
+        if (!isMediaAssetsSchemaMissingError(err)) {
+          throw err;
+        }
+
+        const storedUrl = await uploadMediaBuffer({
+          key: key.trim(),
+          buffer,
+          contentType,
+          bucket: "public",
+        });
+        const previewUrl = await resolveMediaPreviewUrl(storedUrl, "public");
+
+        return NextResponse.json({
+          storedUrl,
+          mediaUrl: storedUrl,
+          posterStoredUrl: null,
+          previewUrl,
+          status: "ready",
+          assetId: null,
+          pipelineBypassed: true,
+        });
+      }
     }
 
     const storedUrl = await uploadMediaBuffer({
@@ -128,16 +152,6 @@ export async function POST(request: NextRequest) {
     });
   } catch (err) {
     console.error("Media upload error:", err);
-    if (isMediaAssetsSchemaMissingError(err)) {
-      return NextResponse.json(
-        {
-          error:
-            "Media pipeline zatim neni pripravena v databazi. Nejprve je potreba aplikovat migraci media_assets.",
-          setupRequired: true,
-        },
-        { status: 503 },
-      );
-    }
     return NextResponse.json({ error: "Upload selhal" }, { status: 500 });
   }
 }
@@ -149,7 +163,14 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "Chybí value" }, { status: 400 });
     }
 
-    const assetState = await resolveMediaAssetPreviewState(value.trim());
+    let assetState = null;
+    try {
+      assetState = await resolveMediaAssetPreviewState(value.trim());
+    } catch (err) {
+      if (!isMediaAssetsSchemaMissingError(err)) {
+        throw err;
+      }
+    }
     if (assetState) {
       return NextResponse.json(assetState);
     }

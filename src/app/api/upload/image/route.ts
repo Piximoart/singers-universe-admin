@@ -18,10 +18,17 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "Chybí value" }, { status: 400 });
     }
 
-     const assetState = await resolveMediaAssetPreviewState(value.trim());
-     if (assetState) {
-       return NextResponse.json(assetState);
-     }
+    let assetState = null;
+    try {
+      assetState = await resolveMediaAssetPreviewState(value.trim());
+    } catch (err) {
+      if (!isMediaAssetsSchemaMissingError(err)) {
+        throw err;
+      }
+    }
+    if (assetState) {
+      return NextResponse.json(assetState);
+    }
 
     const storedUrl = toMediaReference(value, "public");
     const previewUrl = await resolveMediaPreviewUrl(storedUrl, "public");
@@ -77,43 +84,55 @@ export async function POST(request: NextRequest) {
     }
 
     const buffer = Buffer.from(await file.arrayBuffer());
-    const asset = await createMediaAsset({
-      kind: "image",
-      fileName: file.name || key,
-      contentType: file.type,
-    });
+    try {
+      const asset = await createMediaAsset({
+        kind: "image",
+        fileName: file.name || key,
+        contentType: file.type,
+      });
 
-    await uploadMediaBuffer({
-      key: asset.master_object_key,
-      buffer,
-      contentType: file.type,
-      bucket: "private",
-    });
+      await uploadMediaBuffer({
+        key: asset.master_object_key,
+        buffer,
+        contentType: file.type,
+        bucket: "private",
+      });
 
-    const previewUrl = await resolveMediaPreviewUrl(
-      `private://${asset.master_object_key}`,
-      "private",
-    );
-    const storedUrl = createImageDeliveryRef(asset.id);
+      const previewUrl = await resolveMediaPreviewUrl(
+        `private://${asset.master_object_key}`,
+        "private",
+      );
+      const storedUrl = createImageDeliveryRef(asset.id);
 
-    return NextResponse.json({
-      storedUrl,
-      previewUrl: previewUrl ?? null,
-      status: asset.status,
-      assetId: asset.id,
-    });
+      return NextResponse.json({
+        storedUrl,
+        previewUrl: previewUrl ?? null,
+        status: asset.status,
+        assetId: asset.id,
+      });
+    } catch (err) {
+      if (!isMediaAssetsSchemaMissingError(err)) {
+        throw err;
+      }
+
+      const storedUrl = await uploadMediaBuffer({
+        key: key.trim(),
+        buffer,
+        contentType: file.type,
+        bucket: "public",
+      });
+      const previewUrl = await resolveMediaPreviewUrl(storedUrl, "public");
+
+      return NextResponse.json({
+        storedUrl,
+        previewUrl: previewUrl ?? null,
+        status: "ready",
+        assetId: null,
+        pipelineBypassed: true,
+      });
+    }
   } catch (err) {
     console.error("Image upload error:", err);
-    if (isMediaAssetsSchemaMissingError(err)) {
-      return NextResponse.json(
-        {
-          error:
-            "Media pipeline zatim neni pripravena v databazi. Nejprve je potreba aplikovat migraci media_assets.",
-          setupRequired: true,
-        },
-        { status: 503 },
-      );
-    }
     return NextResponse.json({ error: "Upload selhal" }, { status: 500 });
   }
 }

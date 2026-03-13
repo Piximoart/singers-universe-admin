@@ -23,6 +23,11 @@ type HeroSlideDraft = {
   mediaError: string | null;
 };
 
+type SlideValidationIssue = {
+  slideId: string;
+  message: string;
+};
+
 type LoadHomepageHeroResponse = {
   slides?: Partial<HeroSlideDraft>[];
   setupRequired?: boolean;
@@ -34,7 +39,9 @@ function toObjectKey(value: string) {
   return value.replace(/^(public|private):\/\//, "").replace(/^\/+/, "");
 }
 
-function createDraft(): HeroSlideDraft {
+function createDraft(
+  seed?: Partial<Pick<HeroSlideDraft, "kind" | "headline" | "ctaHref">>,
+): HeroSlideDraft {
   const id =
     typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
       ? crypto.randomUUID()
@@ -42,9 +49,9 @@ function createDraft(): HeroSlideDraft {
 
   return {
     id,
-    kind: "image",
-    headline: "",
-    ctaHref: "/signup",
+    kind: seed?.kind ?? "image",
+    headline: seed?.headline ?? "",
+    ctaHref: seed?.ctaHref ?? "/signup",
     mediaObjectKey: "",
     posterObjectKey: "",
     mediaPreviewUrl: null,
@@ -63,6 +70,22 @@ function normalizeSlide(raw: Partial<HeroSlideDraft> | undefined): HeroSlideDraf
   };
 }
 
+function getSlideValidationIssue(slide: HeroSlideDraft): string | null {
+  if (!slide.headline.trim()) {
+    return "Vyplňte headline.";
+  }
+  if (!slide.mediaObjectKey) {
+    return "Nahrajte obrázek nebo video.";
+  }
+  if (slide.mediaStatus === "processing") {
+    return "Médium se stále zpracovává.";
+  }
+  if (slide.mediaStatus === "failed") {
+    return slide.mediaError?.trim() || "Médium je ve stavu failed.";
+  }
+  return null;
+}
+
 export default function HomepageHeroManager() {
   const [slides, setSlides] = useState<HeroSlideDraft[]>([]);
   const [loading, setLoading] = useState(true);
@@ -71,15 +94,24 @@ export default function HomepageHeroManager() {
   const [notice, setNotice] = useState("");
   const [setupMessage, setSetupMessage] = useState("");
 
-  const hasBlockingMediaState = useMemo(
+  const blockingIssues = useMemo<SlideValidationIssue[]>(
     () =>
-      slides.some(
-        (slide) =>
-          !slide.mediaObjectKey ||
-          slide.mediaStatus === "processing" ||
-          slide.mediaStatus === "failed",
-      ),
+      slides
+        .map((slide) => ({
+          slideId: slide.id,
+          message: getSlideValidationIssue(slide),
+        }))
+        .flatMap((item) => (item.message ? [item as SlideValidationIssue] : [])),
     [slides],
+  );
+
+  const hasBlockingMediaState = blockingIssues.length > 0;
+  const issueBySlide = useMemo(
+    () =>
+      new Map<string, string>(
+        blockingIssues.map((item) => [item.slideId, item.message]),
+      ),
+    [blockingIssues],
   );
 
   async function load() {
@@ -123,6 +155,11 @@ export default function HomepageHeroManager() {
   }
 
   async function save() {
+    if (blockingIssues.length > 0) {
+      setError(`Slide není připravený k uložení: ${blockingIssues[0].message}`);
+      return;
+    }
+
     setSaving(true);
     setError("");
     setNotice("");
@@ -166,7 +203,19 @@ export default function HomepageHeroManager() {
         <div className="flex items-center gap-3">
           <Button
             variant="secondary"
-            onClick={() => setSlides((current) => [...current, createDraft()])}
+            onClick={() =>
+              setSlides((current) => {
+                const previous = current[current.length - 1];
+                return [
+                  ...current,
+                  createDraft({
+                    kind: previous?.kind ?? "image",
+                    headline: previous?.headline ?? "",
+                    ctaHref: previous?.ctaHref ?? "/signup",
+                  }),
+                ];
+              })
+            }
           >
             <Plus size={16} />
             Přidat slide
@@ -182,7 +231,7 @@ export default function HomepageHeroManager() {
       {setupMessage ? <p className="text-sm text-amber-300">{setupMessage}</p> : null}
       {hasBlockingMediaState && slides.length > 0 ? (
         <p className="text-sm text-amber-300">
-          Dokud nejsou všechny assety ve stavu ready, hero nejde uložit.
+          Hero nelze uložit, dokud každý slide nemá headline a ready médium.
         </p>
       ) : null}
 
@@ -330,6 +379,9 @@ export default function HomepageHeroManager() {
                     </>
                   )}
                   {slide.mediaError ? <p className="text-xs text-red-400">{slide.mediaError}</p> : null}
+                  {issueBySlide.get(slide.id) ? (
+                    <p className="text-xs text-amber-300">{issueBySlide.get(slide.id)}</p>
+                  ) : null}
                 </div>
               </div>
             </Card>

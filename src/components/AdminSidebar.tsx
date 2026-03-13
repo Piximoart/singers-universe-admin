@@ -10,6 +10,7 @@ import {
   FileText,
   ImageIcon,
   Users,
+  HardDrive,
   LogOut,
 } from "lucide-react";
 import { cn } from "@/lib/cn";
@@ -22,6 +23,7 @@ const navItems = [
   { href: "/tracks", label: "Tracky", icon: Music },
   { href: "/posts", label: "Posty", icon: FileText },
   { href: "/stories", label: "Stories", icon: ImageIcon },
+  { href: "/storage", label: "Uložiště", icon: HardDrive },
   { href: "/users", label: "Uživatelé", icon: Users },
 ];
 

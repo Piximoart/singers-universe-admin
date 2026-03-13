@@ -3,17 +3,22 @@
 import { useId, useRef, useState } from "react";
 import { Music, X, CheckCircle } from "lucide-react";
 import { cn } from "@/lib/cn";
+import { logUploadDiagnostic } from "@/lib/uploadDiagnostics";
 
 interface AudioUploadProps {
   label: string;
   currentUrl?: string;
   onUpload: (url: string) => void;
-  uploadKey: string; // např. "audio/vexa-neon-lights.mp3"
+  uploadKey: string;
   isPrivate?: boolean;
   uploadEnabled?: boolean;
   uploadLockReason?: string;
   hint?: string;
 }
+
+type PickerInput = HTMLInputElement & { showPicker?: () => void };
+
+const DEFAULT_UPLOAD_LOCK_REASON = "Nejdřív vyberte zpěváka / influencera.";
 
 export default function AudioUpload({
   label,
@@ -27,21 +32,59 @@ export default function AudioUpload({
 }: AudioUploadProps) {
   const inputId = useId();
   const [fileName, setFileName] = useState<string | null>(
-    currentUrl ? currentUrl.split("/").pop() || null : null
+    currentUrl ? currentUrl.split("/").pop() || null : null,
   );
   const [progress, setProgress] = useState(0);
   const [loading, setLoading] = useState(false);
   const [done, setDone] = useState(!!currentUrl);
   const [error, setError] = useState("");
+  const [blockedNotice, setBlockedNotice] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
 
-  function openPicker() {
-    if (!loading && uploadEnabled) {
-      inputRef.current?.click();
+  function openPicker(source: string) {
+    logUploadDiagnostic("upload_picker_open_attempt", { component: "AudioUpload", source, label });
+
+    if (loading) {
+      logUploadDiagnostic("upload_picker_open_blocked", {
+        component: "AudioUpload",
+        source,
+        reason: "loading",
+        label,
+      });
+      return;
+    }
+
+    if (!uploadEnabled) {
+      const reason = uploadLockReason || DEFAULT_UPLOAD_LOCK_REASON;
+      setBlockedNotice(reason);
+      logUploadDiagnostic("upload_picker_open_blocked", {
+        component: "AudioUpload",
+        source,
+        reason,
+        label,
+      });
+      return;
+    }
+
+    setBlockedNotice("");
+    setError("");
+    const input = inputRef.current;
+    if (!input) return;
+
+    try {
+      const pickerInput = input as PickerInput;
+      if (typeof pickerInput.showPicker === "function") {
+        pickerInput.showPicker();
+        return;
+      }
+      input.click();
+    } catch {
+      input.click();
     }
   }
 
   async function handleFile(file: File) {
+    setBlockedNotice("");
     setError("");
     setLoading(true);
     setDone(false);
@@ -49,7 +92,6 @@ export default function AudioUpload({
     setFileName(file.name);
 
     try {
-      // Upload přes server-side API (bez CORS problémů z browseru)
       await new Promise<void>((resolve, reject) => {
         const xhr = new XMLHttpRequest();
         const body = new FormData();
@@ -102,6 +144,19 @@ export default function AudioUpload({
     }
   }
 
+  function clearCurrentUpload() {
+    setFileName(null);
+    setDone(false);
+    setProgress(0);
+    setError("");
+    setBlockedNotice("");
+    if (inputRef.current) {
+      inputRef.current.value = "";
+    }
+    onUpload("");
+    logUploadDiagnostic("upload_removed", { component: "AudioUpload", label });
+  }
+
   return (
     <div className="space-y-1.5">
       <label className="block text-sm font-medium text-white">{label}</label>
@@ -110,7 +165,7 @@ export default function AudioUpload({
         className={cn(
           "rounded-lg border border-dashed border-border bg-s2 px-4 py-4 transition-colors hover:border-sub",
           loading && "cursor-wait opacity-70",
-          !uploadEnabled && "cursor-not-allowed opacity-60"
+          !uploadEnabled && "cursor-not-allowed opacity-80 border-amber-400/40",
         )}
       >
         {loading ? (
@@ -135,9 +190,7 @@ export default function AudioUpload({
               type="button"
               onClick={(e) => {
                 e.stopPropagation();
-                setFileName(null);
-                setDone(false);
-                onUpload("");
+                clearCurrentUpload();
               }}
               className="ml-auto text-sub hover:text-white transition-colors"
             >
@@ -145,29 +198,33 @@ export default function AudioUpload({
             </button>
           </div>
         ) : (
-          <label
-            htmlFor={inputId}
+          <button
+            type="button"
+            onClick={() => openPicker("dropzone")}
             className={cn(
               "flex items-center gap-2 text-sm text-sub",
-              uploadEnabled && "cursor-pointer",
+              uploadEnabled ? "cursor-pointer" : "cursor-not-allowed",
             )}
+            aria-disabled={loading || !uploadEnabled}
           >
             <Music size={16} strokeWidth={1.5} />
             <span>
-              {uploadEnabled
-                ? "Kliknout a nahrát audio soubor"
-                : uploadLockReason || "Nejdřív vyberte zpěváka / influencera"}
+              {uploadEnabled ? "Kliknout a nahrát audio soubor" : uploadLockReason || DEFAULT_UPLOAD_LOCK_REASON}
             </span>
-          </label>
+          </button>
         )}
       </div>
 
       <div className="flex items-center gap-2">
         <button
           type="button"
-          onClick={openPicker}
-          disabled={loading || !uploadEnabled}
-          className="inline-flex items-center justify-center rounded-md bg-s3 px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-s4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-lime/80 disabled:cursor-not-allowed disabled:opacity-50"
+          onClick={() => openPicker("cta")}
+          disabled={loading}
+          className={cn(
+            "inline-flex items-center justify-center rounded-md bg-s3 px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-s4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-lime/80 disabled:cursor-not-allowed disabled:opacity-50",
+            !uploadEnabled && "border border-amber-400/50 hover:bg-s3",
+          )}
+          aria-disabled={loading || !uploadEnabled}
         >
           {done && fileName ? "Vybrat jiné audio" : "Vybrat audio"}
         </button>
@@ -179,20 +236,26 @@ export default function AudioUpload({
         type="file"
         accept="audio/mpeg,audio/wav,audio/flac,audio/ogg,audio/aac,audio/x-m4a,audio/mp4,audio/aiff,audio/x-aiff,audio/opus,video/mp4,video/quicktime,video/webm,audio/*,video/*"
         className="hidden"
-        disabled={!uploadEnabled}
+        disabled={loading}
         onChange={(e) => {
           const file = e.target.files?.[0];
-          if (file) handleFile(file);
+          if (file) {
+            logUploadDiagnostic("upload_file_selected", {
+              component: "AudioUpload",
+              source: "picker",
+              name: file.name,
+              type: file.type,
+              size: file.size,
+            });
+            void handleFile(file);
+          }
           e.target.value = "";
         }}
       />
 
       {hint && <p className="text-xs text-sub">{hint}</p>}
-      {!uploadEnabled && (
-        <p className="text-xs text-red-400">
-          {uploadLockReason || "Nejdřív vyberte zpěváka / influencera."}
-        </p>
-      )}
+      {!uploadEnabled && <p className="text-xs text-amber-300">{uploadLockReason || DEFAULT_UPLOAD_LOCK_REASON}</p>}
+      {blockedNotice ? <p className="text-xs text-amber-300">{blockedNotice}</p> : null}
       {error && <p className="text-xs text-red-400">{error}</p>}
     </div>
   );

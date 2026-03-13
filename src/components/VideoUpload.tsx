@@ -3,6 +3,7 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { Clapperboard, X } from "lucide-react";
 import { cn } from "@/lib/cn";
+import { logUploadDiagnostic } from "@/lib/uploadDiagnostics";
 
 type UploadAssetStatus = "processing" | "ready" | "failed";
 
@@ -28,8 +29,14 @@ interface VideoUploadProps {
   onUpload: (url: string) => void;
   uploadKey: string;
   hint?: string;
+  uploadEnabled?: boolean;
+  uploadLockReason?: string;
   onUploadStateChange?: (state: UploadState) => void;
 }
+
+type PickerInput = HTMLInputElement & { showPicker?: () => void };
+
+const DEFAULT_UPLOAD_LOCK_REASON = "Nejdřív doplňte povinná pole pro upload.";
 
 export default function VideoUpload({
   label,
@@ -37,6 +44,8 @@ export default function VideoUpload({
   onUpload,
   uploadKey,
   hint,
+  uploadEnabled = true,
+  uploadLockReason,
   onUploadStateChange,
 }: VideoUploadProps) {
   const inputId = useId();
@@ -44,6 +53,8 @@ export default function VideoUpload({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [status, setStatus] = useState<UploadAssetStatus>("ready");
+  const [blockedNotice, setBlockedNotice] = useState("");
+  const inputRef = useRef<HTMLInputElement>(null);
   const localPreviewRef = useRef<string | null>(null);
   const pollTimerRef = useRef<number | null>(null);
 
@@ -61,6 +72,48 @@ export default function VideoUpload({
     if (pollTimerRef.current) {
       window.clearTimeout(pollTimerRef.current);
       pollTimerRef.current = null;
+    }
+  }
+
+  function openPicker(source: string) {
+    logUploadDiagnostic("upload_picker_open_attempt", { component: "VideoUpload", source, label });
+
+    if (loading) {
+      logUploadDiagnostic("upload_picker_open_blocked", {
+        component: "VideoUpload",
+        source,
+        reason: "loading",
+        label,
+      });
+      return;
+    }
+
+    if (!uploadEnabled) {
+      const reason = uploadLockReason || DEFAULT_UPLOAD_LOCK_REASON;
+      setBlockedNotice(reason);
+      logUploadDiagnostic("upload_picker_open_blocked", {
+        component: "VideoUpload",
+        source,
+        reason,
+        label,
+      });
+      return;
+    }
+
+    setBlockedNotice("");
+    setError("");
+    const input = inputRef.current;
+    if (!input) return;
+
+    try {
+      const pickerInput = input as PickerInput;
+      if (typeof pickerInput.showPicker === "function") {
+        pickerInput.showPicker();
+        return;
+      }
+      input.click();
+    } catch {
+      input.click();
     }
   }
 
@@ -121,6 +174,7 @@ export default function VideoUpload({
   }, [currentUrl]);
 
   async function handleFile(file: File) {
+    setBlockedNotice("");
     setError("");
     setLoading(true);
     publishState("processing", null, null, null);
@@ -169,6 +223,23 @@ export default function VideoUpload({
     }
   }
 
+  function clearCurrentUpload() {
+    if (localPreviewRef.current) {
+      URL.revokeObjectURL(localPreviewRef.current);
+      localPreviewRef.current = null;
+    }
+    clearPoll();
+    setPreview(null);
+    setBlockedNotice("");
+    setError("");
+    publishState("ready", null, null, null);
+    if (inputRef.current) {
+      inputRef.current.value = "";
+    }
+    onUpload("");
+    logUploadDiagnostic("upload_removed", { component: "VideoUpload", label });
+  }
+
   return (
     <div className="space-y-1.5">
       <label className="block text-sm font-medium text-white">{label}</label>
@@ -177,18 +248,20 @@ export default function VideoUpload({
         className={cn(
           "relative overflow-hidden rounded-lg border border-dashed border-border transition-colors hover:border-sub",
           loading && "opacity-50 cursor-wait",
+          !uploadEnabled && "opacity-80 border-amber-400/40",
         )}
       >
         {preview ? (
-          <label htmlFor={inputId} className={cn("relative block aspect-video bg-s2 group", loading && "cursor-wait")}>
-            <video
-              src={preview}
-              muted
-              playsInline
-              className="pointer-events-none h-full w-full object-cover"
+          <div className={cn("relative block aspect-video bg-s2 group", loading && "cursor-wait")}>
+            <video src={preview} muted playsInline className="pointer-events-none h-full w-full object-cover" />
+            <button
+              type="button"
+              onClick={() => openPicker("preview")}
+              className="absolute inset-0 z-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-lime/80"
+              aria-label="Vybrat jiné video"
             />
-            <div className="pointer-events-none absolute inset-0 bg-black/45 opacity-0 transition-opacity group-hover:opacity-100" />
-            <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 to-transparent px-4 py-3 opacity-0 transition-opacity group-hover:opacity-100">
+            <div className="pointer-events-none absolute inset-0 z-20 bg-black/45 opacity-0 transition-opacity group-hover:opacity-100" />
+            <div className="pointer-events-none absolute inset-x-0 bottom-0 z-20 bg-gradient-to-t from-black/80 to-transparent px-4 py-3 opacity-0 transition-opacity group-hover:opacity-100">
               <p className="text-white text-sm">Kliknout pro změnu videa</p>
             </div>
             <button
@@ -196,80 +269,89 @@ export default function VideoUpload({
               onClick={(e) => {
                 e.preventDefault();
                 e.stopPropagation();
-                if (localPreviewRef.current) {
-                  URL.revokeObjectURL(localPreviewRef.current);
-                  localPreviewRef.current = null;
-                }
-                clearPoll();
-                setPreview(null);
-                publishState("ready", null, null, null);
-                onUpload("");
+                clearCurrentUpload();
               }}
-              className="absolute top-2 right-2 w-7 h-7 bg-black/70 rounded-full flex items-center justify-center text-white hover:bg-black transition-colors"
+              className="absolute top-2 right-2 z-30 w-7 h-7 bg-black/70 rounded-full flex items-center justify-center text-white hover:bg-black transition-colors"
               aria-label="Odebrat video"
             >
               <X size={12} />
             </button>
-            <div className="pointer-events-none absolute inset-x-0 bottom-0 flex justify-start gap-2 p-3">
-              <span className="rounded-full bg-black/75 px-3 py-1 text-xs font-medium text-white">
-                Preview
-              </span>
+            <div className="pointer-events-none absolute inset-x-0 bottom-0 z-20 flex justify-start gap-2 p-3">
+              <span className="rounded-full bg-black/75 px-3 py-1 text-xs font-medium text-white">Preview</span>
               {status === "processing" ? (
                 <span className="rounded-full bg-amber-500/85 px-3 py-1 text-xs font-medium text-black">
                   Processing
                 </span>
               ) : null}
             </div>
-          </label>
+          </div>
         ) : (
-          <label
-            htmlFor={inputId}
-            onClick={(e) => {
-              if (loading) e.preventDefault();
-            }}
+          <button
+            type="button"
+            onClick={() => openPicker("dropzone")}
             className={cn(
-              "flex aspect-video cursor-pointer flex-col items-center justify-center gap-2 bg-s2",
-              loading && "cursor-wait",
+              "flex aspect-video w-full flex-col items-center justify-center gap-2 bg-s2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-lime/80",
+              loading ? "cursor-wait" : uploadEnabled ? "cursor-pointer" : "cursor-not-allowed",
             )}
+            aria-disabled={loading || !uploadEnabled}
           >
             {loading ? (
               <div className="w-6 h-6 border-2 border-lime/30 border-t-lime rounded-full animate-spin" />
             ) : (
               <>
                 <Clapperboard size={24} className="text-sub" strokeWidth={1.5} />
-                <p className="text-sm text-sub">Kliknout a nahrát video</p>
+                <p className="text-sm text-sub">
+                  {uploadEnabled ? "Kliknout a nahrát video" : uploadLockReason || DEFAULT_UPLOAD_LOCK_REASON}
+                </p>
               </>
             )}
-          </label>
+          </button>
         )}
       </div>
 
       <div className="flex items-center gap-2">
-        <label
-          htmlFor={inputId}
-          onClick={(e) => {
-            if (loading) e.preventDefault();
-          }}
-          className="inline-flex items-center justify-center rounded-md bg-s3 px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-s4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-lime/80 disabled:cursor-not-allowed disabled:opacity-50"
-          aria-disabled={loading}
+        <button
+          type="button"
+          onClick={() => openPicker("cta")}
+          disabled={loading}
+          className={cn(
+            "inline-flex items-center justify-center rounded-md bg-s3 px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-s4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-lime/80 disabled:cursor-not-allowed disabled:opacity-50",
+            !uploadEnabled && "border border-amber-400/50 hover:bg-s3",
+          )}
+          aria-disabled={loading || !uploadEnabled}
         >
           {preview ? "Vybrat jiné video" : "Vybrat video"}
-        </label>
+        </button>
       </div>
 
       <input
         id={inputId}
+        ref={inputRef}
         type="file"
         accept="video/mp4,video/webm,video/quicktime,video/*"
         className="sr-only"
+        disabled={loading}
         onChange={(e) => {
           const file = e.target.files?.[0];
-          if (file) void handleFile(file);
+          if (file) {
+            logUploadDiagnostic("upload_file_selected", {
+              component: "VideoUpload",
+              source: "picker",
+              name: file.name,
+              type: file.type,
+              size: file.size,
+            });
+            void handleFile(file);
+          }
           e.target.value = "";
         }}
       />
 
       {hint && <p className="text-xs text-sub">{hint}</p>}
+      {!uploadEnabled ? (
+        <p className="text-xs text-amber-300">{uploadLockReason || DEFAULT_UPLOAD_LOCK_REASON}</p>
+      ) : null}
+      {blockedNotice ? <p className="text-xs text-amber-300">{blockedNotice}</p> : null}
       {status === "processing" ? (
         <p className="text-xs text-amber-300">Zpracovávám fallback MP4, poster a adaptivní stream…</p>
       ) : null}

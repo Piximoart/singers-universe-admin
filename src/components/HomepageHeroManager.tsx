@@ -293,29 +293,37 @@ export default function HomepageHeroManager() {
                         }
                         hint="Video se nahraje jako private master. Backend z něj připraví poster, fallback MP4 a adaptivní stream."
                       />
+                      {!slide.mediaObjectKey ? (
+                        <p className="text-xs text-sub">Po odebrání média klikněte na Vybrat video pro nový soubor.</p>
+                      ) : null}
                       <div className="rounded-lg bg-s2 px-4 py-3 text-xs text-sub">
                         Poster se generuje automaticky z videa. Public hero nikdy nepřehrává originální upload.
                       </div>
                     </>
                   ) : (
-                    <ImageUpload
-                      label="Hero image"
-                      currentUrl={slide.mediaObjectKey ? `public://${slide.mediaObjectKey}` : ""}
-                      onUpload={(value) =>
-                        updateSlide(slide.id, {
-                          mediaObjectKey: toObjectKey(value),
-                          mediaPreviewUrl: null,
-                        })
-                      }
-                      onUploadStateChange={(state) =>
-                        updateSlide(slide.id, {
-                          mediaStatus: state.status,
-                          mediaError: state.error ?? null,
-                        })
-                      }
-                      uploadPath={`homepage/hero/${slide.id}/image-${Date.now()}.jpg`}
-                      hint="Nahraje se private master a worker z něj připraví public display.webp + thumb.webp."
-                    />
+                    <>
+                      <ImageUpload
+                        label="Hero image"
+                        currentUrl={slide.mediaObjectKey ? `public://${slide.mediaObjectKey}` : ""}
+                        onUpload={(value) =>
+                          updateSlide(slide.id, {
+                            mediaObjectKey: toObjectKey(value),
+                            mediaPreviewUrl: null,
+                          })
+                        }
+                        onUploadStateChange={(state) =>
+                          updateSlide(slide.id, {
+                            mediaStatus: state.status,
+                            mediaError: state.error ?? null,
+                          })
+                        }
+                        uploadPath={`homepage/hero/${slide.id}/image-${Date.now()}.jpg`}
+                        hint="Nahraje se private master a worker z něj připraví public display.webp + thumb.webp."
+                      />
+                      {!slide.mediaObjectKey ? (
+                        <p className="text-xs text-sub">Po odebrání obrázku klikněte na Vybrat obrázek pro nový soubor.</p>
+                      ) : null}
+                    </>
                   )}
                   {slide.mediaError ? <p className="text-xs text-red-400">{slide.mediaError}</p> : null}
                 </div>

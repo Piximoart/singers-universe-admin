@@ -14,9 +14,11 @@ import {
   AlertTriangle,
 } from "lucide-react";
 import { cn } from "@/lib/cn";
+import { logUploadDiagnostic } from "@/lib/uploadDiagnostics";
 
 type FileStatus = "pending" | "uploading" | "done" | "error" | "skipped";
 type MediaType = "audio" | "video";
+type PickerInput = HTMLInputElement & { showPicker?: () => void };
 
 interface BulkFile {
   id: string;
@@ -150,6 +152,40 @@ export default function BulkUploadPage() {
   const [dragging, setDragging] = useState(false);
 
   const canUploadSelection = !!singerId && !!albumId;
+  const uploadLockReason = !singerId
+    ? "Nejdřív vyberte zpěváka / influencera."
+    : !albumId
+      ? "Nejdřív vyberte album."
+      : "";
+
+  function openBulkPicker(source: string) {
+    logUploadDiagnostic("upload_picker_open_attempt", { component: "BulkUpload", source });
+    if (!canUploadSelection) {
+      const reason = uploadLockReason || "Nejdřív vyberte zpěváka / influencera a album.";
+      setGlobalError(reason);
+      logUploadDiagnostic("upload_picker_open_blocked", {
+        component: "BulkUpload",
+        source,
+        reason,
+      });
+      return;
+    }
+
+    setGlobalError("");
+    const input = inputRef.current;
+    if (!input) return;
+
+    try {
+      const pickerInput = input as PickerInput;
+      if (typeof pickerInput.showPicker === "function") {
+        pickerInput.showPicker();
+        return;
+      }
+      input.click();
+    } catch {
+      input.click();
+    }
+  }
 
   useEffect(() => {
     Promise.all([
@@ -190,7 +226,13 @@ export default function BulkUploadPage() {
 
   function addFiles(newFiles: FileList | File[]) {
     if (!canUploadSelection) {
-      setGlobalError("Nejdřív vyberte zpěváka / influencera a album.");
+      const reason = uploadLockReason || "Nejdřív vyberte zpěváka / influencera a album.";
+      setGlobalError(reason);
+      logUploadDiagnostic("upload_picker_open_blocked", {
+        component: "BulkUpload",
+        source: "add-files",
+        reason,
+      });
       return;
     }
 
@@ -226,6 +268,12 @@ export default function BulkUploadPage() {
 
     if (mapped.length === 0) return;
 
+    logUploadDiagnostic("upload_file_selected", {
+      component: "BulkUpload",
+      source: "add-files",
+      count: mapped.length,
+      names: mapped.map((item) => item.file.name).slice(0, 10),
+    });
     setFiles((prev) => [...prev, ...mapped]);
   }
 
@@ -242,13 +290,20 @@ export default function BulkUploadPage() {
     e.preventDefault();
     setDragging(false);
     if (!canUploadSelection) {
-      setGlobalError("Nejdřív vyberte zpěváka / influencera a album.");
+      const reason = uploadLockReason || "Nejdřív vyberte zpěváka / influencera a album.";
+      setGlobalError(reason);
+      logUploadDiagnostic("upload_picker_open_blocked", {
+        component: "BulkUpload",
+        source: "drop",
+        reason,
+      });
       return;
     }
     if (e.dataTransfer.files.length) addFiles(e.dataTransfer.files);
   }
 
   function removeFile(id: string) {
+    logUploadDiagnostic("upload_removed", { component: "BulkUpload", fileId: id });
     setFiles((prev) => prev.filter((f) => f.id !== id));
   }
 
@@ -258,7 +313,8 @@ export default function BulkUploadPage() {
 
   async function handleUpload() {
     if (!canUploadSelection) {
-      setGlobalError("Vyberte zpěváka / influencera i album.");
+      const reason = uploadLockReason || "Vyberte zpěváka / influencera i album.";
+      setGlobalError(reason);
       return;
     }
 
@@ -295,7 +351,8 @@ export default function BulkUploadPage() {
     const done = files.filter((f) => f.status === "done" && f.mediaUrl);
     if (!done.length) return;
     if (!canUploadSelection) {
-      setGlobalError("Vyberte zpěváka / influencera i album.");
+      const reason = uploadLockReason || "Vyberte zpěváka / influencera i album.";
+      setGlobalError(reason);
       return;
     }
 
@@ -517,7 +574,7 @@ export default function BulkUploadPage() {
       {files.length < 50 && (
         <div
           ref={dropRef}
-          onClick={() => canUploadSelection && inputRef.current?.click()}
+          onClick={() => openBulkPicker("dropzone")}
           onDragOver={onDragOver}
           onDragLeave={onDragLeave}
           onDrop={onDrop}
@@ -550,9 +607,10 @@ export default function BulkUploadPage() {
         accept={ACCEPT}
         multiple
         className="hidden"
-        disabled={!canUploadSelection}
         onChange={(e) => {
-          if (e.target.files?.length) addFiles(e.target.files);
+          if (e.target.files?.length) {
+            addFiles(e.target.files);
+          }
           e.target.value = "";
         }}
       />

@@ -6,7 +6,6 @@ import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { cn } from "@/lib/cn";
 import { logUploadDiagnostic } from "@/lib/uploadDiagnostics";
-import { safeOpenFileDialog } from "@/lib/safeOpenFileDialog";
 
 type Bucket = "public" | "private";
 type MediaType = "image" | "audio" | "video";
@@ -107,6 +106,54 @@ export default function StoragePage() {
   const [uploadResult, setUploadResult] = useState("");
   const fileRef = useRef<HTMLInputElement>(null);
 
+  function openStoragePicker(source: string) {
+    const input = fileRef.current as (HTMLInputElement & { showPicker?: () => void }) | null;
+    logUploadDiagnostic("picker_attempt", {
+      component: "StoragePage",
+      source,
+      label: "Storage upload",
+    });
+
+    if (!input) {
+      logUploadDiagnostic("picker_blocked", {
+        component: "StoragePage",
+        source,
+        reason: "missing-input",
+      });
+      return;
+    }
+
+    if (typeof input.showPicker === "function") {
+      try {
+        input.showPicker();
+        logUploadDiagnostic("picker_opened", {
+          component: "StoragePage",
+          source,
+          method: "showPicker",
+        });
+        return;
+      } catch {
+        // Continue to click fallback
+      }
+    }
+
+    try {
+      input.click();
+      logUploadDiagnostic("picker_opened", {
+        component: "StoragePage",
+        source,
+        method: "click",
+      });
+    } catch {
+      input.focus();
+      logUploadDiagnostic("picker_blocked", {
+        component: "StoragePage",
+        source,
+        reason: "picker-open-failed",
+      });
+    }
+  }
+
   useEffect(() => {
     setUploadPrefix(PREFIX_OPTIONS[uploadType][0].value);
     if (uploadType === "image") {
@@ -161,11 +208,7 @@ export default function StoragePage() {
     const file = fileRef.current?.files?.[0];
     if (!file) {
       setUploadError("Vyberte soubor.");
-      safeOpenFileDialog(fileRef.current, {
-        component: "StoragePage",
-        source: "upload-submit-empty",
-        label: "Nahrát soubor",
-      });
+      openStoragePicker("upload-submit-empty");
       return;
     }
 
@@ -304,6 +347,7 @@ export default function StoragePage() {
             onChange={(event) => {
               const file = event.target.files?.[0];
               if (!file) return;
+              setUploadError("");
               logUploadDiagnostic("file_selected", {
                 component: "StoragePage",
                 source: "native-file-input",

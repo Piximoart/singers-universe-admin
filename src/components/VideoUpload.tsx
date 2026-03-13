@@ -4,7 +4,6 @@ import { useEffect, useId, useRef, useState } from "react";
 import { Clapperboard, X } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { logUploadDiagnostic } from "@/lib/uploadDiagnostics";
-import { safeOpenFileDialog } from "@/lib/safeOpenFileDialog";
 import StorageObjectPicker, { type StoragePickerItem } from "@/components/StorageObjectPicker";
 
 type UploadAssetStatus = "processing" | "ready" | "failed";
@@ -84,8 +83,15 @@ export default function VideoUpload({
     }
   }
 
-  function openPicker(source: string) {
+  function handlePickerTrigger(source: string, event?: React.MouseEvent<HTMLElement>) {
+    logUploadDiagnostic("picker_attempt", {
+      component: "VideoUpload",
+      source,
+      label,
+    });
+
     if (loading) {
+      event?.preventDefault();
       logUploadDiagnostic("picker_blocked", {
         component: "VideoUpload",
         source,
@@ -96,6 +102,7 @@ export default function VideoUpload({
     }
 
     if (!uploadEnabled) {
+      event?.preventDefault();
       const reason = uploadLockReason || DEFAULT_UPLOAD_LOCK_REASON;
       setBlockedNotice(reason);
       logUploadDiagnostic("picker_blocked", {
@@ -109,14 +116,11 @@ export default function VideoUpload({
 
     setBlockedNotice("");
     setError("");
-    const opened = safeOpenFileDialog(inputRef.current, {
+    logUploadDiagnostic("picker_opened", {
       component: "VideoUpload",
       source,
       label,
     });
-    if (!opened) {
-      setError("Nepodařilo se otevřít výběr souboru.");
-    }
   }
 
   function openStoragePicker() {
@@ -359,9 +363,9 @@ export default function VideoUpload({
             </div>
           </div>
         ) : (
-          <button
-            type="button"
-            onClick={() => openPicker("dropzone")}
+          <label
+            htmlFor={inputId}
+            onClick={(event) => handlePickerTrigger("dropzone", event)}
             className={cn(
               "flex aspect-video w-full flex-col items-center justify-center gap-2 bg-s2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-lime/80",
               loading ? "cursor-wait" : uploadEnabled ? "cursor-pointer" : "cursor-not-allowed",
@@ -378,23 +382,23 @@ export default function VideoUpload({
                 </p>
               </>
             )}
-          </button>
+          </label>
         )}
       </div>
 
       <div className="flex items-center gap-2">
-        <button
-          type="button"
-          onClick={() => openPicker("cta")}
-          disabled={loading}
+        <label
+          htmlFor={inputId}
+          onClick={(event) => handlePickerTrigger("cta", event)}
           className={cn(
             "inline-flex items-center justify-center rounded-md bg-s3 px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-s4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-lime/80 disabled:cursor-not-allowed disabled:opacity-50",
+            loading && "cursor-not-allowed opacity-50",
             !uploadEnabled && "border border-amber-400/50 hover:bg-s3",
           )}
           aria-disabled={loading || !uploadEnabled}
         >
           {preview ? "Nahrát nové video" : "Nahrát nové video"}
-        </button>
+        </label>
         {storageEnabled ? (
           <button
             type="button"
@@ -416,7 +420,7 @@ export default function VideoUpload({
         ref={inputRef}
         type="file"
         accept="video/mp4,video/webm,video/quicktime,video/*"
-        className="h-0 w-0 opacity-0 absolute pointer-events-none"
+        className="sr-only"
         disabled={loading}
         onChange={(e) => {
           const file = e.target.files?.[0];

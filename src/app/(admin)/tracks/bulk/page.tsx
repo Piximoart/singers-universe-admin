@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   ArrowLeft,
@@ -15,7 +15,6 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { logUploadDiagnostic } from "@/lib/uploadDiagnostics";
-import { safeOpenFileDialog } from "@/lib/safeOpenFileDialog";
 
 type FileStatus = "pending" | "uploading" | "done" | "error" | "skipped";
 type MediaType = "audio" | "video";
@@ -132,8 +131,8 @@ async function uploadFile(
 
 export default function BulkUploadPage() {
   const router = useRouter();
-  const dropRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const inputId = useId();
 
   const [singers, setSingers] = useState<{ value: string; label: string }[]>([]);
   const [allAlbums, setAllAlbums] = useState<AlbumOption[]>([]);
@@ -158,8 +157,15 @@ export default function BulkUploadPage() {
       ? "Nejdřív vyberte album."
       : "";
 
-  function openBulkPicker(source: string) {
+  function handleBulkPickerTrigger(source: string, event?: React.MouseEvent<HTMLElement>) {
+    logUploadDiagnostic("picker_attempt", {
+      component: "BulkUpload",
+      source,
+      label: "Bulk upload",
+    });
+
     if (!canUploadSelection) {
+      event?.preventDefault();
       const reason = uploadLockReason || "Nejdřív vyberte zpěváka / influencera a album.";
       setGlobalError(reason);
       logUploadDiagnostic("picker_blocked", {
@@ -171,14 +177,11 @@ export default function BulkUploadPage() {
     }
 
     setGlobalError("");
-    const opened = safeOpenFileDialog(inputRef.current, {
+    logUploadDiagnostic("picker_opened", {
       component: "BulkUpload",
       source,
       label: "Bulk upload",
     });
-    if (!opened) {
-      setGlobalError("Nepodařilo se otevřít výběr souborů.");
-    }
   }
 
   useEffect(() => {
@@ -585,9 +588,9 @@ export default function BulkUploadPage() {
       </div>
 
       {files.length < 50 && (
-        <div
-          ref={dropRef}
-          onClick={() => openBulkPicker("dropzone")}
+        <label
+          htmlFor={inputId}
+          onClick={(event) => handleBulkPickerTrigger("dropzone", event)}
           onDragOver={onDragOver}
           onDragLeave={onDragLeave}
           onDrop={onDrop}
@@ -611,15 +614,16 @@ export default function BulkUploadPage() {
           <p className="text-xs mt-1 opacity-50">
             Max. 50 souborů · zbývá {50 - files.length} míst
           </p>
-        </div>
+        </label>
       )}
 
       <input
+        id={inputId}
         ref={inputRef}
         type="file"
         accept={ACCEPT}
         multiple
-        className="h-0 w-0 opacity-0 absolute pointer-events-none"
+        className="sr-only"
         onChange={(e) => {
           if (e.target.files?.length) {
             addFiles(e.target.files);

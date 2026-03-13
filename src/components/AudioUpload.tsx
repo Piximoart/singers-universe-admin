@@ -4,7 +4,6 @@ import { useId, useRef, useState } from "react";
 import { Music, X, CheckCircle } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { logUploadDiagnostic } from "@/lib/uploadDiagnostics";
-import { safeOpenFileDialog } from "@/lib/safeOpenFileDialog";
 import StorageObjectPicker, { type StoragePickerItem } from "@/components/StorageObjectPicker";
 
 interface AudioUploadProps {
@@ -50,8 +49,15 @@ export default function AudioUpload({
   const [showStoragePicker, setShowStoragePicker] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  function openPicker(source: string) {
+  function handlePickerTrigger(source: string, event?: React.MouseEvent<HTMLElement>) {
+    logUploadDiagnostic("picker_attempt", {
+      component: "AudioUpload",
+      source,
+      label,
+    });
+
     if (loading) {
+      event?.preventDefault();
       logUploadDiagnostic("picker_blocked", {
         component: "AudioUpload",
         source,
@@ -62,6 +68,7 @@ export default function AudioUpload({
     }
 
     if (!uploadEnabled) {
+      event?.preventDefault();
       const reason = uploadLockReason || DEFAULT_UPLOAD_LOCK_REASON;
       setBlockedNotice(reason);
       logUploadDiagnostic("picker_blocked", {
@@ -75,14 +82,11 @@ export default function AudioUpload({
 
     setBlockedNotice("");
     setError("");
-    const opened = safeOpenFileDialog(inputRef.current, {
+    logUploadDiagnostic("picker_opened", {
       component: "AudioUpload",
       source,
       label,
     });
-    if (!opened) {
-      setError("Nepodařilo se otevřít výběr souboru.");
-    }
   }
 
   function openStoragePicker() {
@@ -272,9 +276,9 @@ export default function AudioUpload({
             </button>
           </div>
         ) : (
-          <button
-            type="button"
-            onClick={() => openPicker("dropzone")}
+          <label
+            htmlFor={inputId}
+            onClick={(event) => handlePickerTrigger("dropzone", event)}
             className={cn(
               "flex items-center gap-2 text-sm text-sub",
               uploadEnabled ? "cursor-pointer" : "cursor-not-allowed",
@@ -285,23 +289,23 @@ export default function AudioUpload({
             <span>
               {uploadEnabled ? "Kliknout a nahrát audio soubor" : uploadLockReason || DEFAULT_UPLOAD_LOCK_REASON}
             </span>
-          </button>
+          </label>
         )}
       </div>
 
       <div className="flex items-center gap-2">
-        <button
-          type="button"
-          onClick={() => openPicker("cta")}
-          disabled={loading}
+        <label
+          htmlFor={inputId}
+          onClick={(event) => handlePickerTrigger("cta", event)}
           className={cn(
             "inline-flex items-center justify-center rounded-md bg-s3 px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-s4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-lime/80 disabled:cursor-not-allowed disabled:opacity-50",
+            loading && "cursor-not-allowed opacity-50",
             !uploadEnabled && "border border-amber-400/50 hover:bg-s3",
           )}
           aria-disabled={loading || !uploadEnabled}
         >
           {done && fileName ? "Nahrát nové audio/video" : "Nahrát nové audio/video"}
-        </button>
+        </label>
         {storageEnabled ? (
           <button
             type="button"
@@ -323,7 +327,7 @@ export default function AudioUpload({
         ref={inputRef}
         type="file"
         accept="audio/mpeg,audio/wav,audio/flac,audio/ogg,audio/aac,audio/x-m4a,audio/mp4,audio/aiff,audio/x-aiff,audio/opus,video/mp4,video/quicktime,video/webm,audio/*,video/*"
-        className="h-0 w-0 opacity-0 absolute pointer-events-none"
+        className="sr-only"
         disabled={loading}
         onChange={(e) => {
           const file = e.target.files?.[0];

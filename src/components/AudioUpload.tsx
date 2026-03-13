@@ -311,7 +311,7 @@ export default function AudioUpload({
         ref={inputRef}
         type="file"
         accept="audio/mpeg,audio/wav,audio/flac,audio/ogg,audio/aac,audio/x-m4a,audio/mp4,audio/aiff,audio/x-aiff,audio/opus,video/mp4,video/quicktime,video/webm,audio/*,video/*"
-        className="hidden"
+        className="h-0 w-0 opacity-0 absolute pointer-events-none"
         disabled={loading}
         onChange={(e) => {
           const file = e.target.files?.[0];

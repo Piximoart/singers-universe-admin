@@ -354,17 +354,8 @@ export default function ImageUpload({
         )}
       >
         {preview ? (
-          <div className={cn("relative block h-40 group", loading && "cursor-wait")}>
+          <div className={cn("relative block h-40", loading && "cursor-wait")}>
             <img src={preview} alt="Preview" className="w-full h-full object-cover" />
-            <button
-              type="button"
-              onClick={() => openPicker("preview")}
-              className="absolute inset-0 z-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-lime/80"
-              aria-label="Vybrat jiný obrázek"
-            />
-            <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center bg-black/60 opacity-0 transition-opacity group-hover:opacity-100">
-              <p className="text-white text-sm">Kliknout pro změnu</p>
-            </div>
             <button
               type="button"
               onClick={(e) => {
@@ -444,7 +435,7 @@ export default function ImageUpload({
         ref={inputRef}
         type="file"
         accept={accept}
-        className="sr-only"
+        className="h-0 w-0 opacity-0 absolute pointer-events-none"
         disabled={loading}
         onChange={(e) => {
           const file = e.target.files?.[0];

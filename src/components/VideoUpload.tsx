@@ -316,18 +316,8 @@ export default function VideoUpload({
         )}
       >
         {preview ? (
-          <div className={cn("relative block aspect-video bg-s2 group", loading && "cursor-wait")}>
+          <div className={cn("relative block aspect-video bg-s2", loading && "cursor-wait")}>
             <video src={preview} muted playsInline className="pointer-events-none h-full w-full object-cover" />
-            <button
-              type="button"
-              onClick={() => openPicker("preview")}
-              className="absolute inset-0 z-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-lime/80"
-              aria-label="Vybrat jiné video"
-            />
-            <div className="pointer-events-none absolute inset-0 z-20 bg-black/45 opacity-0 transition-opacity group-hover:opacity-100" />
-            <div className="pointer-events-none absolute inset-x-0 bottom-0 z-20 bg-gradient-to-t from-black/80 to-transparent px-4 py-3 opacity-0 transition-opacity group-hover:opacity-100">
-              <p className="text-white text-sm">Kliknout pro změnu videa</p>
-            </div>
             <button
               type="button"
               onClick={(e) => {
@@ -407,7 +397,7 @@ export default function VideoUpload({
         ref={inputRef}
         type="file"
         accept="video/mp4,video/webm,video/quicktime,video/*"
-        className="sr-only"
+        className="h-0 w-0 opacity-0 absolute pointer-events-none"
         disabled={loading}
         onChange={(e) => {
           const file = e.target.files?.[0];

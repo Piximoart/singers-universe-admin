@@ -10,6 +10,7 @@ type SafeOpenFileDialogContext = {
 
 type SafeOpenFileDialogOptions = {
   watchdogMs?: number;
+  retryOnWatchdog?: boolean;
 };
 
 function emit(context: SafeOpenFileDialogContext, payload: Record<string, unknown>) {
@@ -62,6 +63,7 @@ export function safeOpenFileDialog(
   }
 
   const watchdogMs = options.watchdogMs ?? 220;
+  const retryOnWatchdog = options.retryOnWatchdog ?? false;
   const target = input;
   let changed = false;
   let blurred = false;
@@ -140,7 +142,9 @@ export function safeOpenFileDialog(
     if (changed || blurred) return;
 
     emit(context, { reason: "silent-fail-watchdog" });
-    attemptClick(target, context, "watchdog-click");
+    if (retryOnWatchdog) {
+      attemptClick(target, context, "watchdog-click");
+    }
   }, watchdogMs);
 
   hardStopTimer = window.setTimeout(() => {

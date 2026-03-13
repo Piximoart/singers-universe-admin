@@ -39,6 +39,29 @@ function toObjectKey(value: string) {
   return value.replace(/^(public|private):\/\//, "").replace(/^\/+/, "");
 }
 
+function getFileExtension(fileName: string, fallback: string) {
+  const safeFallback = fallback.startsWith(".") ? fallback : `.${fallback}`;
+  const dotIndex = fileName.lastIndexOf(".");
+  if (dotIndex <= 0) return safeFallback;
+  const ext = fileName.slice(dotIndex).toLowerCase();
+  return ext.match(/^\.[a-z0-9]+$/) ? ext : safeFallback;
+}
+
+function createHeroUploadToken() {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  return String(Date.now());
+}
+
+function createHeroImageUploadKey(slideId: string, fileName: string) {
+  return `homepage/hero/${slideId}/image-${createHeroUploadToken()}${getFileExtension(fileName, ".jpg")}`;
+}
+
+function createHeroVideoUploadKey(slideId: string, fileName: string) {
+  return `homepage/hero/${slideId}/media-${createHeroUploadToken()}${getFileExtension(fileName, ".mp4")}`;
+}
+
 function createDraft(
   seed?: Partial<Pick<HeroSlideDraft, "kind" | "headline" | "ctaHref">>,
 ): HeroSlideDraft {
@@ -324,7 +347,8 @@ export default function HomepageHeroManager() {
                       <VideoUpload
                         label="Hero video"
                         currentUrl={slide.mediaObjectKey ? `public://${slide.mediaObjectKey}` : ""}
-                        uploadKey={`homepage/hero/${slide.id}/media-${Date.now()}.mp4`}
+                        uploadKey={`homepage/hero/${slide.id}/media.mp4`}
+                        uploadKeyFactory={(file) => createHeroVideoUploadKey(slide.id, file.name)}
                         onUpload={(value) =>
                           updateSlide(slide.id, {
                             mediaObjectKey: toObjectKey(value),
@@ -370,7 +394,8 @@ export default function HomepageHeroManager() {
                         }
                         storageBuckets={["public"]}
                         storagePrefixes={["homepage/hero/", "media/", "covers/", "posts/", "stories/", "avatars/"]}
-                        uploadPath={`homepage/hero/${slide.id}/image-${Date.now()}.jpg`}
+                        uploadPath={`homepage/hero/${slide.id}/image.jpg`}
+                        uploadPathFactory={(file) => createHeroImageUploadKey(slide.id, file.name)}
                         hint="Nahraje se private master a worker z něj připraví public display.webp + thumb.webp."
                       />
                       {!slide.mediaObjectKey ? (

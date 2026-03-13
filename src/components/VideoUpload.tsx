@@ -4,6 +4,7 @@ import { useEffect, useId, useRef, useState } from "react";
 import { Clapperboard, X } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { logUploadDiagnostic } from "@/lib/uploadDiagnostics";
+import { safeOpenFileDialog } from "@/lib/safeOpenFileDialog";
 import StorageObjectPicker, { type StoragePickerItem } from "@/components/StorageObjectPicker";
 
 type UploadAssetStatus = "processing" | "ready" | "failed";
@@ -29,6 +30,7 @@ interface VideoUploadProps {
   currentUrl?: string;
   onUpload: (url: string) => void;
   uploadKey: string;
+  uploadKeyFactory?: (file: File) => string;
   hint?: string;
   uploadEnabled?: boolean;
   uploadLockReason?: string;
@@ -38,8 +40,6 @@ interface VideoUploadProps {
   onUploadStateChange?: (state: UploadState) => void;
 }
 
-type PickerInput = HTMLInputElement & { showPicker?: () => void };
-
 const DEFAULT_UPLOAD_LOCK_REASON = "Nejdřív doplňte povinná pole pro upload.";
 
 export default function VideoUpload({
@@ -47,6 +47,7 @@ export default function VideoUpload({
   currentUrl,
   onUpload,
   uploadKey,
+  uploadKeyFactory,
   hint,
   uploadEnabled = true,
   uploadLockReason,
@@ -84,10 +85,8 @@ export default function VideoUpload({
   }
 
   function openPicker(source: string) {
-    logUploadDiagnostic("upload_picker_open_attempt", { component: "VideoUpload", source, label });
-
     if (loading) {
-      logUploadDiagnostic("upload_picker_open_blocked", {
+      logUploadDiagnostic("picker_blocked", {
         component: "VideoUpload",
         source,
         reason: "loading",
@@ -99,7 +98,7 @@ export default function VideoUpload({
     if (!uploadEnabled) {
       const reason = uploadLockReason || DEFAULT_UPLOAD_LOCK_REASON;
       setBlockedNotice(reason);
-      logUploadDiagnostic("upload_picker_open_blocked", {
+      logUploadDiagnostic("picker_blocked", {
         component: "VideoUpload",
         source,
         reason,
@@ -110,30 +109,25 @@ export default function VideoUpload({
 
     setBlockedNotice("");
     setError("");
-    const input = inputRef.current;
-    if (!input) return;
-
-    try {
-      const pickerInput = input as PickerInput;
-      if (typeof pickerInput.showPicker === "function") {
-        pickerInput.showPicker();
-        return;
-      }
-      input.click();
-    } catch {
-      input.click();
+    const opened = safeOpenFileDialog(inputRef.current, {
+      component: "VideoUpload",
+      source,
+      label,
+    });
+    if (!opened) {
+      setError("Nepodařilo se otevřít výběr souboru.");
     }
   }
 
   function openStoragePicker() {
-    logUploadDiagnostic("upload_picker_open_attempt", {
+    logUploadDiagnostic("picker_attempt", {
       component: "VideoUpload",
       source: "storage-cta",
       label,
     });
 
     if (loading) {
-      logUploadDiagnostic("upload_picker_open_blocked", {
+      logUploadDiagnostic("picker_blocked", {
         component: "VideoUpload",
         source: "storage-cta",
         reason: "loading",
@@ -145,7 +139,7 @@ export default function VideoUpload({
     if (!uploadEnabled) {
       const reason = uploadLockReason || DEFAULT_UPLOAD_LOCK_REASON;
       setBlockedNotice(reason);
-      logUploadDiagnostic("upload_picker_open_blocked", {
+      logUploadDiagnostic("picker_blocked", {
         component: "VideoUpload",
         source: "storage-cta",
         reason,
@@ -220,6 +214,14 @@ export default function VideoUpload({
     setError("");
     setLoading(true);
     publishState("processing", null, null, null);
+    logUploadDiagnostic("upload_started", {
+      component: "VideoUpload",
+      source: "picker",
+      label,
+      name: file.name,
+      type: file.type,
+      size: file.size,
+    });
 
     if (localPreviewRef.current) {
       URL.revokeObjectURL(localPreviewRef.current);
@@ -232,8 +234,12 @@ export default function VideoUpload({
 
     try {
       const formData = new FormData();
+      const resolvedUploadKey = uploadKeyFactory ? uploadKeyFactory(file) : uploadKey;
+      if (!resolvedUploadKey?.trim()) {
+        throw new Error("Upload key není připravený");
+      }
       formData.append("file", file);
-      formData.append("key", uploadKey);
+      formData.append("key", resolvedUploadKey);
       formData.append("isPrivate", "false");
 
       const res = await fetch("/api/upload/media", {
@@ -248,6 +254,13 @@ export default function VideoUpload({
       if (!storedUrl) throw new Error("Upload nevrátil storedUrl");
 
       onUpload(storedUrl);
+      logUploadDiagnostic("upload_done", {
+        component: "VideoUpload",
+        source: "picker",
+        label,
+        storedUrl,
+        status: data.status ?? "ready",
+      });
 
       if (localPreviewRef.current === localUrl) {
         URL.revokeObjectURL(localUrl);
@@ -260,6 +273,12 @@ export default function VideoUpload({
       const message = err instanceof Error ? err.message : "Upload selhal";
       setError(message);
       publishState("failed", null, message, null);
+      logUploadDiagnostic("upload_failed", {
+        component: "VideoUpload",
+        source: "picker",
+        label,
+        error: message,
+      });
     } finally {
       setLoading(false);
     }
@@ -295,7 +314,7 @@ export default function VideoUpload({
     publishState("ready", null, null, null);
     onUpload(item.storedUrl);
     setShowStoragePicker(false);
-    logUploadDiagnostic("upload_file_selected", {
+    logUploadDiagnostic("file_selected", {
       component: "VideoUpload",
       source: "storage-select",
       key: item.key,
@@ -402,7 +421,7 @@ export default function VideoUpload({
         onChange={(e) => {
           const file = e.target.files?.[0];
           if (file) {
-            logUploadDiagnostic("upload_file_selected", {
+            logUploadDiagnostic("file_selected", {
               component: "VideoUpload",
               source: "picker",
               name: file.name,

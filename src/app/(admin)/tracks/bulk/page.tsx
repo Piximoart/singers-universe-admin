@@ -15,10 +15,10 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { logUploadDiagnostic } from "@/lib/uploadDiagnostics";
+import { safeOpenFileDialog } from "@/lib/safeOpenFileDialog";
 
 type FileStatus = "pending" | "uploading" | "done" | "error" | "skipped";
 type MediaType = "audio" | "video";
-type PickerInput = HTMLInputElement & { showPicker?: () => void };
 
 interface BulkFile {
   id: string;
@@ -159,11 +159,10 @@ export default function BulkUploadPage() {
       : "";
 
   function openBulkPicker(source: string) {
-    logUploadDiagnostic("upload_picker_open_attempt", { component: "BulkUpload", source });
     if (!canUploadSelection) {
       const reason = uploadLockReason || "Nejdřív vyberte zpěváka / influencera a album.";
       setGlobalError(reason);
-      logUploadDiagnostic("upload_picker_open_blocked", {
+      logUploadDiagnostic("picker_blocked", {
         component: "BulkUpload",
         source,
         reason,
@@ -172,18 +171,13 @@ export default function BulkUploadPage() {
     }
 
     setGlobalError("");
-    const input = inputRef.current;
-    if (!input) return;
-
-    try {
-      const pickerInput = input as PickerInput;
-      if (typeof pickerInput.showPicker === "function") {
-        pickerInput.showPicker();
-        return;
-      }
-      input.click();
-    } catch {
-      input.click();
+    const opened = safeOpenFileDialog(inputRef.current, {
+      component: "BulkUpload",
+      source,
+      label: "Bulk upload",
+    });
+    if (!opened) {
+      setGlobalError("Nepodařilo se otevřít výběr souborů.");
     }
   }
 
@@ -228,7 +222,7 @@ export default function BulkUploadPage() {
     if (!canUploadSelection) {
       const reason = uploadLockReason || "Nejdřív vyberte zpěváka / influencera a album.";
       setGlobalError(reason);
-      logUploadDiagnostic("upload_picker_open_blocked", {
+      logUploadDiagnostic("picker_blocked", {
         component: "BulkUpload",
         source: "add-files",
         reason,
@@ -268,7 +262,7 @@ export default function BulkUploadPage() {
 
     if (mapped.length === 0) return;
 
-    logUploadDiagnostic("upload_file_selected", {
+    logUploadDiagnostic("file_selected", {
       component: "BulkUpload",
       source: "add-files",
       count: mapped.length,
@@ -292,7 +286,7 @@ export default function BulkUploadPage() {
     if (!canUploadSelection) {
       const reason = uploadLockReason || "Nejdřív vyberte zpěváka / influencera a album.";
       setGlobalError(reason);
-      logUploadDiagnostic("upload_picker_open_blocked", {
+      logUploadDiagnostic("picker_blocked", {
         component: "BulkUpload",
         source: "drop",
         reason,
@@ -329,14 +323,33 @@ export default function BulkUploadPage() {
       while (idx < pending.length) {
         const bf = pending[idx++];
         updateFile(bf.id, { status: "uploading", progress: 0, error: null });
+        logUploadDiagnostic("upload_started", {
+          component: "BulkUpload",
+          source: "worker",
+          fileId: bf.id,
+          name: bf.file.name,
+          mediaType: bf.mediaType,
+        });
         try {
           const { mediaUrl } = await uploadFile(bf, singerId, (id, pct) =>
             updateFile(id, { progress: pct }),
           );
           updateFile(bf.id, { status: "done", progress: 100, mediaUrl, error: null });
+          logUploadDiagnostic("upload_done", {
+            component: "BulkUpload",
+            source: "worker",
+            fileId: bf.id,
+            mediaUrl,
+          });
         } catch (err) {
           updateFile(bf.id, {
             status: "error",
+            error: err instanceof Error ? err.message : "Upload selhal",
+          });
+          logUploadDiagnostic("upload_failed", {
+            component: "BulkUpload",
+            source: "worker",
+            fileId: bf.id,
             error: err instanceof Error ? err.message : "Upload selhal",
           });
         }
@@ -606,7 +619,7 @@ export default function BulkUploadPage() {
         type="file"
         accept={ACCEPT}
         multiple
-        className="hidden"
+        className="h-0 w-0 opacity-0 absolute pointer-events-none"
         onChange={(e) => {
           if (e.target.files?.length) {
             addFiles(e.target.files);

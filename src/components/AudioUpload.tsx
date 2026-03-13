@@ -4,6 +4,7 @@ import { useId, useRef, useState } from "react";
 import { Music, X, CheckCircle } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { logUploadDiagnostic } from "@/lib/uploadDiagnostics";
+import { safeOpenFileDialog } from "@/lib/safeOpenFileDialog";
 import StorageObjectPicker, { type StoragePickerItem } from "@/components/StorageObjectPicker";
 
 interface AudioUploadProps {
@@ -20,8 +21,6 @@ interface AudioUploadProps {
   storageBuckets?: ("public" | "private")[];
   storageMediaTypes?: ("audio" | "video")[];
 }
-
-type PickerInput = HTMLInputElement & { showPicker?: () => void };
 
 const DEFAULT_UPLOAD_LOCK_REASON = "Nejdřív vyberte zpěváka / influencera.";
 
@@ -52,10 +51,8 @@ export default function AudioUpload({
   const inputRef = useRef<HTMLInputElement>(null);
 
   function openPicker(source: string) {
-    logUploadDiagnostic("upload_picker_open_attempt", { component: "AudioUpload", source, label });
-
     if (loading) {
-      logUploadDiagnostic("upload_picker_open_blocked", {
+      logUploadDiagnostic("picker_blocked", {
         component: "AudioUpload",
         source,
         reason: "loading",
@@ -67,7 +64,7 @@ export default function AudioUpload({
     if (!uploadEnabled) {
       const reason = uploadLockReason || DEFAULT_UPLOAD_LOCK_REASON;
       setBlockedNotice(reason);
-      logUploadDiagnostic("upload_picker_open_blocked", {
+      logUploadDiagnostic("picker_blocked", {
         component: "AudioUpload",
         source,
         reason,
@@ -78,30 +75,25 @@ export default function AudioUpload({
 
     setBlockedNotice("");
     setError("");
-    const input = inputRef.current;
-    if (!input) return;
-
-    try {
-      const pickerInput = input as PickerInput;
-      if (typeof pickerInput.showPicker === "function") {
-        pickerInput.showPicker();
-        return;
-      }
-      input.click();
-    } catch {
-      input.click();
+    const opened = safeOpenFileDialog(inputRef.current, {
+      component: "AudioUpload",
+      source,
+      label,
+    });
+    if (!opened) {
+      setError("Nepodařilo se otevřít výběr souboru.");
     }
   }
 
   function openStoragePicker() {
-    logUploadDiagnostic("upload_picker_open_attempt", {
+    logUploadDiagnostic("picker_attempt", {
       component: "AudioUpload",
       source: "storage-cta",
       label,
     });
 
     if (loading) {
-      logUploadDiagnostic("upload_picker_open_blocked", {
+      logUploadDiagnostic("picker_blocked", {
         component: "AudioUpload",
         source: "storage-cta",
         reason: "loading",
@@ -113,7 +105,7 @@ export default function AudioUpload({
     if (!uploadEnabled) {
       const reason = uploadLockReason || DEFAULT_UPLOAD_LOCK_REASON;
       setBlockedNotice(reason);
-      logUploadDiagnostic("upload_picker_open_blocked", {
+      logUploadDiagnostic("picker_blocked", {
         component: "AudioUpload",
         source: "storage-cta",
         reason,
@@ -134,6 +126,14 @@ export default function AudioUpload({
     setDone(false);
     setProgress(0);
     setFileName(file.name);
+    logUploadDiagnostic("upload_started", {
+      component: "AudioUpload",
+      source: "picker",
+      label,
+      name: file.name,
+      type: file.type,
+      size: file.size,
+    });
 
     try {
       await new Promise<void>((resolve, reject) => {
@@ -162,6 +162,12 @@ export default function AudioUpload({
                 return;
               }
               onUpload(storedUrl);
+              logUploadDiagnostic("upload_done", {
+                component: "AudioUpload",
+                source: "picker",
+                label,
+                storedUrl,
+              });
             } catch {
               reject(new Error("Neplatná odpověď upload API"));
               return;
@@ -183,6 +189,12 @@ export default function AudioUpload({
       setError(err instanceof Error ? err.message : "Upload selhal");
       setFileName(null);
       setProgress(0);
+      logUploadDiagnostic("upload_failed", {
+        component: "AudioUpload",
+        source: "picker",
+        label,
+        error: err instanceof Error ? err.message : "Upload selhal",
+      });
     } finally {
       setLoading(false);
     }
@@ -210,7 +222,7 @@ export default function AudioUpload({
     setFileName(item.key.split("/").pop() || item.key);
     onUpload(item.storedUrl);
     setShowStoragePicker(false);
-    logUploadDiagnostic("upload_file_selected", {
+    logUploadDiagnostic("file_selected", {
       component: "AudioUpload",
       source: "storage-select",
       key: item.key,
@@ -316,7 +328,7 @@ export default function AudioUpload({
         onChange={(e) => {
           const file = e.target.files?.[0];
           if (file) {
-            logUploadDiagnostic("upload_file_selected", {
+            logUploadDiagnostic("file_selected", {
               component: "AudioUpload",
               source: "picker",
               name: file.name,

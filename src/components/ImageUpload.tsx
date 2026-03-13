@@ -4,6 +4,7 @@ import { useEffect, useId, useRef, useState } from "react";
 import { Upload, X } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { logUploadDiagnostic } from "@/lib/uploadDiagnostics";
+import { safeOpenFileDialog } from "@/lib/safeOpenFileDialog";
 import StorageObjectPicker, { type StoragePickerItem } from "@/components/StorageObjectPicker";
 
 type UploadAssetStatus = "processing" | "ready" | "failed";
@@ -19,6 +20,7 @@ interface ImageUploadProps {
   currentUrl?: string;
   onUpload: (url: string) => void;
   uploadPath: string;
+  uploadPathFactory?: (file: File) => string;
   accept?: string;
   hint?: string;
   uploadEnabled?: boolean;
@@ -37,8 +39,6 @@ type UploadApiResponse = {
   error?: string;
 };
 
-type PickerInput = HTMLInputElement & { showPicker?: () => void };
-
 const DEFAULT_UPLOAD_LOCK_REASON = "Nejdřív doplňte povinná pole pro upload.";
 
 export default function ImageUpload({
@@ -46,6 +46,7 @@ export default function ImageUpload({
   currentUrl,
   onUpload,
   uploadPath,
+  uploadPathFactory,
   accept = "image/*",
   hint,
   uploadEnabled = true,
@@ -79,10 +80,8 @@ export default function ImageUpload({
   }
 
   function openPicker(source: string) {
-    logUploadDiagnostic("upload_picker_open_attempt", { component: "ImageUpload", source, label });
-
     if (loading) {
-      logUploadDiagnostic("upload_picker_open_blocked", {
+      logUploadDiagnostic("picker_blocked", {
         component: "ImageUpload",
         source,
         reason: "loading",
@@ -94,7 +93,7 @@ export default function ImageUpload({
     if (!uploadEnabled) {
       const reason = uploadLockReason || DEFAULT_UPLOAD_LOCK_REASON;
       setBlockedNotice(reason);
-      logUploadDiagnostic("upload_picker_open_blocked", {
+      logUploadDiagnostic("picker_blocked", {
         component: "ImageUpload",
         source,
         reason,
@@ -105,30 +104,25 @@ export default function ImageUpload({
 
     setBlockedNotice("");
     setError("");
-    const input = inputRef.current;
-    if (!input) return;
-
-    try {
-      const pickerInput = input as PickerInput;
-      if (typeof pickerInput.showPicker === "function") {
-        pickerInput.showPicker();
-        return;
-      }
-      input.click();
-    } catch {
-      input.click();
+    const opened = safeOpenFileDialog(inputRef.current, {
+      component: "ImageUpload",
+      source,
+      label,
+    });
+    if (!opened) {
+      setError("Nepodařilo se otevřít výběr souboru.");
     }
   }
 
   function openStoragePicker() {
-    logUploadDiagnostic("upload_picker_open_attempt", {
+    logUploadDiagnostic("picker_attempt", {
       component: "ImageUpload",
       source: "storage-cta",
       label,
     });
 
     if (loading) {
-      logUploadDiagnostic("upload_picker_open_blocked", {
+      logUploadDiagnostic("picker_blocked", {
         component: "ImageUpload",
         source: "storage-cta",
         reason: "loading",
@@ -140,7 +134,7 @@ export default function ImageUpload({
     if (!uploadEnabled) {
       const reason = uploadLockReason || DEFAULT_UPLOAD_LOCK_REASON;
       setBlockedNotice(reason);
-      logUploadDiagnostic("upload_picker_open_blocked", {
+      logUploadDiagnostic("picker_blocked", {
         component: "ImageUpload",
         source: "storage-cta",
         reason,
@@ -215,6 +209,14 @@ export default function ImageUpload({
     setError("");
     setLoading(true);
     publishState("processing", null, null);
+    logUploadDiagnostic("upload_started", {
+      component: "ImageUpload",
+      source: "picker",
+      label,
+      name: file.name,
+      type: file.type,
+      size: file.size,
+    });
 
     if (localPreviewRef.current) {
       URL.revokeObjectURL(localPreviewRef.current);
@@ -227,8 +229,12 @@ export default function ImageUpload({
 
     try {
       const formData = new FormData();
+      const resolvedUploadPath = uploadPathFactory ? uploadPathFactory(file) : uploadPath;
+      if (!resolvedUploadPath?.trim()) {
+        throw new Error("Upload key není připravený");
+      }
       formData.append("file", file);
-      formData.append("key", uploadPath);
+      formData.append("key", resolvedUploadPath);
 
       const res = await fetch("/api/upload/image", {
         method: "POST",
@@ -242,6 +248,13 @@ export default function ImageUpload({
       if (!storedUrl) throw new Error("Upload nevrátil storedUrl");
 
       onUpload(storedUrl);
+      logUploadDiagnostic("upload_done", {
+        component: "ImageUpload",
+        source: "picker",
+        label,
+        storedUrl,
+        status: data.status ?? "ready",
+      });
 
       if (localPreviewRef.current === localUrl) {
         URL.revokeObjectURL(localUrl);
@@ -269,6 +282,12 @@ export default function ImageUpload({
     } catch (err) {
       setError(err instanceof Error ? err.message : "Upload selhal");
       publishState("failed", null, err instanceof Error ? err.message : "Upload selhal");
+      logUploadDiagnostic("upload_failed", {
+        component: "ImageUpload",
+        source: "picker",
+        label,
+        error: err instanceof Error ? err.message : "Upload selhal",
+      });
     } finally {
       setLoading(false);
     }
@@ -297,7 +316,7 @@ export default function ImageUpload({
     if (!uploadEnabled) {
       const reason = uploadLockReason || DEFAULT_UPLOAD_LOCK_REASON;
       setBlockedNotice(reason);
-      logUploadDiagnostic("upload_picker_open_blocked", {
+      logUploadDiagnostic("picker_blocked", {
         component: "ImageUpload",
         source: "drop",
         reason,
@@ -307,7 +326,7 @@ export default function ImageUpload({
     }
     const file = e.dataTransfer.files[0];
     if (file) {
-      logUploadDiagnostic("upload_file_selected", {
+      logUploadDiagnostic("file_selected", {
         component: "ImageUpload",
         source: "drop",
         name: file.name,
@@ -331,7 +350,7 @@ export default function ImageUpload({
     publishState("ready", null, null);
     onUpload(item.storedUrl);
     setShowStoragePicker(false);
-    logUploadDiagnostic("upload_file_selected", {
+    logUploadDiagnostic("file_selected", {
       component: "ImageUpload",
       source: "storage-select",
       key: item.key,
@@ -440,7 +459,7 @@ export default function ImageUpload({
         onChange={(e) => {
           const file = e.target.files?.[0];
           if (file) {
-            logUploadDiagnostic("upload_file_selected", {
+            logUploadDiagnostic("file_selected", {
               component: "ImageUpload",
               source: "picker",
               name: file.name,

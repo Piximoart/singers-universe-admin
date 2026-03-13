@@ -5,6 +5,8 @@ import { CheckCircle2, Copy, Loader2, RefreshCw, Upload } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { cn } from "@/lib/cn";
+import { logUploadDiagnostic } from "@/lib/uploadDiagnostics";
+import { safeOpenFileDialog } from "@/lib/safeOpenFileDialog";
 
 type Bucket = "public" | "private";
 type MediaType = "image" | "audio" | "video";
@@ -159,6 +161,11 @@ export default function StoragePage() {
     const file = fileRef.current?.files?.[0];
     if (!file) {
       setUploadError("Vyberte soubor.");
+      safeOpenFileDialog(fileRef.current, {
+        component: "StoragePage",
+        source: "upload-submit-empty",
+        label: "Nahrát soubor",
+      });
       return;
     }
 
@@ -166,6 +173,14 @@ export default function StoragePage() {
     setUploadError("");
     setUploadResult("");
     setNotice("");
+    logUploadDiagnostic("upload_started", {
+      component: "StoragePage",
+      source: "upload-submit",
+      name: file.name,
+      type: file.type,
+      size: file.size,
+      uploadType,
+    });
 
     try {
       const key = createObjectKey(uploadPrefix, file.name);
@@ -193,10 +208,20 @@ export default function StoragePage() {
       if (!storedUrl) throw new Error("Upload nevrátil storedUrl.");
 
       setUploadResult(storedUrl);
+      logUploadDiagnostic("upload_done", {
+        component: "StoragePage",
+        source: "upload-submit",
+        storedUrl,
+      });
       if (fileRef.current) fileRef.current.value = "";
       await loadItems();
     } catch (err) {
       setUploadError(err instanceof Error ? err.message : "Upload selhal.");
+      logUploadDiagnostic("upload_failed", {
+        component: "StoragePage",
+        source: "upload-submit",
+        error: err instanceof Error ? err.message : "Upload selhal.",
+      });
     } finally {
       setUploading(false);
     }
@@ -266,7 +291,28 @@ export default function StoragePage() {
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
-          <input ref={fileRef} type="file" className="max-w-full text-sm text-sub file:mr-3 file:rounded file:border-0 file:bg-s2 file:px-3 file:py-2 file:text-white" />
+          <input
+            ref={fileRef}
+            type="file"
+            className="max-w-full text-sm text-sub file:mr-3 file:rounded file:border-0 file:bg-s2 file:px-3 file:py-2 file:text-white"
+            onClick={() =>
+              logUploadDiagnostic("picker_attempt", {
+                component: "StoragePage",
+                source: "native-file-input",
+              })
+            }
+            onChange={(event) => {
+              const file = event.target.files?.[0];
+              if (!file) return;
+              logUploadDiagnostic("file_selected", {
+                component: "StoragePage",
+                source: "native-file-input",
+                name: file.name,
+                type: file.type,
+                size: file.size,
+              });
+            }}
+          />
           <Button onClick={handleUpload} loading={uploading} disabled={uploading}>
             <Upload size={16} />
             Nahrát do úložiště

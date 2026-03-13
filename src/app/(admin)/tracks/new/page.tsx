@@ -172,6 +172,13 @@ export default function NewTrackPage() {
             isPrivate={true}
             uploadEnabled={!!form.singer_id}
             uploadLockReason="Nejdřív vyberte zpěváka / influencera."
+            storageBuckets={["private"]}
+            storageMediaTypes={form.media_type === "video" ? ["video"] : ["audio"]}
+            storagePrefixes={
+              form.singer_id
+                ? [`${form.media_type === "video" ? "video" : "audio"}/${form.singer_id}/`]
+                : []
+            }
             hint="MP3/WAV/M4A nebo MP4/MOV/WebM. Nahraje se do privátního storage."
           />
 

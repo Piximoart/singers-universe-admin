@@ -4,6 +4,7 @@ import { useEffect, useId, useRef, useState } from "react";
 import { Upload, X } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { logUploadDiagnostic } from "@/lib/uploadDiagnostics";
+import StorageObjectPicker, { type StoragePickerItem } from "@/components/StorageObjectPicker";
 
 type UploadAssetStatus = "processing" | "ready" | "failed";
 
@@ -22,6 +23,9 @@ interface ImageUploadProps {
   hint?: string;
   uploadEnabled?: boolean;
   uploadLockReason?: string;
+  storageEnabled?: boolean;
+  storagePrefixes?: string[];
+  storageBuckets?: ("public" | "private")[];
   onUploadStateChange?: (state: UploadState) => void;
 }
 
@@ -46,6 +50,9 @@ export default function ImageUpload({
   hint,
   uploadEnabled = true,
   uploadLockReason,
+  storageEnabled = true,
+  storagePrefixes,
+  storageBuckets = ["public"],
   onUploadStateChange,
 }: ImageUploadProps) {
   const inputId = useId();
@@ -54,6 +61,7 @@ export default function ImageUpload({
   const [error, setError] = useState("");
   const [status, setStatus] = useState<UploadAssetStatus>("ready");
   const [blockedNotice, setBlockedNotice] = useState("");
+  const [showStoragePicker, setShowStoragePicker] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const localPreviewRef = useRef<string | null>(null);
   const pollTimerRef = useRef<number | null>(null);
@@ -110,6 +118,40 @@ export default function ImageUpload({
     } catch {
       input.click();
     }
+  }
+
+  function openStoragePicker() {
+    logUploadDiagnostic("upload_picker_open_attempt", {
+      component: "ImageUpload",
+      source: "storage-cta",
+      label,
+    });
+
+    if (loading) {
+      logUploadDiagnostic("upload_picker_open_blocked", {
+        component: "ImageUpload",
+        source: "storage-cta",
+        reason: "loading",
+        label,
+      });
+      return;
+    }
+
+    if (!uploadEnabled) {
+      const reason = uploadLockReason || DEFAULT_UPLOAD_LOCK_REASON;
+      setBlockedNotice(reason);
+      logUploadDiagnostic("upload_picker_open_blocked", {
+        component: "ImageUpload",
+        source: "storage-cta",
+        reason,
+        label,
+      });
+      return;
+    }
+
+    setBlockedNotice("");
+    setError("");
+    setShowStoragePicker(true);
   }
 
   useEffect(() => {
@@ -276,6 +318,28 @@ export default function ImageUpload({
     }
   }
 
+  function handleStorageSelect(item: StoragePickerItem) {
+    if (localPreviewRef.current) {
+      URL.revokeObjectURL(localPreviewRef.current);
+      localPreviewRef.current = null;
+    }
+    clearPoll();
+    setBlockedNotice("");
+    setError("");
+    setLoading(false);
+    setPreview(item.previewUrl ?? null);
+    publishState("ready", null, null);
+    onUpload(item.storedUrl);
+    setShowStoragePicker(false);
+    logUploadDiagnostic("upload_file_selected", {
+      component: "ImageUpload",
+      source: "storage-select",
+      key: item.key,
+      bucket: item.bucket,
+      storedUrl: item.storedUrl,
+    });
+  }
+
   return (
     <div className="space-y-1.5">
       <label className="block text-sm font-medium text-white">{label}</label>
@@ -357,8 +421,22 @@ export default function ImageUpload({
           )}
           aria-disabled={loading || !uploadEnabled}
         >
-          {preview ? "Vybrat jiný obrázek" : "Vybrat obrázek"}
+          {preview ? "Nahrát nový obrázek" : "Nahrát nový obrázek"}
         </button>
+        {storageEnabled ? (
+          <button
+            type="button"
+            onClick={openStoragePicker}
+            disabled={loading}
+            className={cn(
+              "inline-flex items-center justify-center rounded-md border border-white/10 bg-s2 px-3 py-2 text-sm font-medium text-white transition-colors hover:border-lime/50 hover:text-lime focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-lime/80 disabled:cursor-not-allowed disabled:opacity-50",
+              !uploadEnabled && "border-amber-400/50 hover:text-white",
+            )}
+            aria-disabled={loading || !uploadEnabled}
+          >
+            Vybrat z úložiště
+          </button>
+        ) : null}
       </div>
 
       <input
@@ -385,6 +463,7 @@ export default function ImageUpload({
       />
 
       {hint && <p className="text-xs text-sub">{hint}</p>}
+      <p className="text-xs text-sub">Nahrát nový obrázek = přímý upload do storage.</p>
       {!uploadEnabled ? (
         <p className="text-xs text-amber-300">{uploadLockReason || DEFAULT_UPLOAD_LOCK_REASON}</p>
       ) : null}
@@ -393,6 +472,16 @@ export default function ImageUpload({
         <p className="text-xs text-amber-300">Zpracovávám optimalizovanou public verzi…</p>
       ) : null}
       {error && <p className="text-xs text-red-400">{error}</p>}
+
+      <StorageObjectPicker
+        open={showStoragePicker}
+        title={`${label} — výběr ze storage`}
+        mediaTypes={["image"]}
+        buckets={storageBuckets}
+        prefixes={storagePrefixes}
+        onClose={() => setShowStoragePicker(false)}
+        onSelect={handleStorageSelect}
+      />
     </div>
   );
 }

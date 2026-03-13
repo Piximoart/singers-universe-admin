@@ -4,6 +4,7 @@ import { useId, useRef, useState } from "react";
 import { Music, X, CheckCircle } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { logUploadDiagnostic } from "@/lib/uploadDiagnostics";
+import StorageObjectPicker, { type StoragePickerItem } from "@/components/StorageObjectPicker";
 
 interface AudioUploadProps {
   label: string;
@@ -14,6 +15,10 @@ interface AudioUploadProps {
   uploadEnabled?: boolean;
   uploadLockReason?: string;
   hint?: string;
+  storageEnabled?: boolean;
+  storagePrefixes?: string[];
+  storageBuckets?: ("public" | "private")[];
+  storageMediaTypes?: ("audio" | "video")[];
 }
 
 type PickerInput = HTMLInputElement & { showPicker?: () => void };
@@ -29,6 +34,10 @@ export default function AudioUpload({
   uploadEnabled = true,
   uploadLockReason,
   hint,
+  storageEnabled = true,
+  storagePrefixes,
+  storageBuckets = ["private"],
+  storageMediaTypes = ["audio", "video"],
 }: AudioUploadProps) {
   const inputId = useId();
   const [fileName, setFileName] = useState<string | null>(
@@ -39,6 +48,7 @@ export default function AudioUpload({
   const [done, setDone] = useState(!!currentUrl);
   const [error, setError] = useState("");
   const [blockedNotice, setBlockedNotice] = useState("");
+  const [showStoragePicker, setShowStoragePicker] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   function openPicker(source: string) {
@@ -81,6 +91,40 @@ export default function AudioUpload({
     } catch {
       input.click();
     }
+  }
+
+  function openStoragePicker() {
+    logUploadDiagnostic("upload_picker_open_attempt", {
+      component: "AudioUpload",
+      source: "storage-cta",
+      label,
+    });
+
+    if (loading) {
+      logUploadDiagnostic("upload_picker_open_blocked", {
+        component: "AudioUpload",
+        source: "storage-cta",
+        reason: "loading",
+        label,
+      });
+      return;
+    }
+
+    if (!uploadEnabled) {
+      const reason = uploadLockReason || DEFAULT_UPLOAD_LOCK_REASON;
+      setBlockedNotice(reason);
+      logUploadDiagnostic("upload_picker_open_blocked", {
+        component: "AudioUpload",
+        source: "storage-cta",
+        reason,
+        label,
+      });
+      return;
+    }
+
+    setBlockedNotice("");
+    setError("");
+    setShowStoragePicker(true);
   }
 
   async function handleFile(file: File) {
@@ -157,6 +201,24 @@ export default function AudioUpload({
     logUploadDiagnostic("upload_removed", { component: "AudioUpload", label });
   }
 
+  function handleStorageSelect(item: StoragePickerItem) {
+    setBlockedNotice("");
+    setError("");
+    setLoading(false);
+    setProgress(0);
+    setDone(true);
+    setFileName(item.key.split("/").pop() || item.key);
+    onUpload(item.storedUrl);
+    setShowStoragePicker(false);
+    logUploadDiagnostic("upload_file_selected", {
+      component: "AudioUpload",
+      source: "storage-select",
+      key: item.key,
+      bucket: item.bucket,
+      storedUrl: item.storedUrl,
+    });
+  }
+
   return (
     <div className="space-y-1.5">
       <label className="block text-sm font-medium text-white">{label}</label>
@@ -226,8 +288,22 @@ export default function AudioUpload({
           )}
           aria-disabled={loading || !uploadEnabled}
         >
-          {done && fileName ? "Vybrat jiné audio" : "Vybrat audio"}
+          {done && fileName ? "Nahrát nové audio/video" : "Nahrát nové audio/video"}
         </button>
+        {storageEnabled ? (
+          <button
+            type="button"
+            onClick={openStoragePicker}
+            disabled={loading}
+            className={cn(
+              "inline-flex items-center justify-center rounded-md border border-white/10 bg-s2 px-3 py-2 text-sm font-medium text-white transition-colors hover:border-lime/50 hover:text-lime focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-lime/80 disabled:cursor-not-allowed disabled:opacity-50",
+              !uploadEnabled && "border-amber-400/50 hover:text-white",
+            )}
+            aria-disabled={loading || !uploadEnabled}
+          >
+            Vybrat z úložiště
+          </button>
+        ) : null}
       </div>
 
       <input
@@ -254,9 +330,20 @@ export default function AudioUpload({
       />
 
       {hint && <p className="text-xs text-sub">{hint}</p>}
+      <p className="text-xs text-sub">Nahrát nové audio/video = přímý upload do storage.</p>
       {!uploadEnabled && <p className="text-xs text-amber-300">{uploadLockReason || DEFAULT_UPLOAD_LOCK_REASON}</p>}
       {blockedNotice ? <p className="text-xs text-amber-300">{blockedNotice}</p> : null}
       {error && <p className="text-xs text-red-400">{error}</p>}
+
+      <StorageObjectPicker
+        open={showStoragePicker}
+        title={`${label} — výběr ze storage`}
+        mediaTypes={storageMediaTypes}
+        buckets={storageBuckets}
+        prefixes={storagePrefixes}
+        onClose={() => setShowStoragePicker(false)}
+        onSelect={handleStorageSelect}
+      />
     </div>
   );
 }

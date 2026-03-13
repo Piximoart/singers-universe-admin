@@ -236,6 +236,44 @@ export type SingerStorageObject = {
   storedUrl: string;
 };
 
+export type StorageMediaType = "image" | "audio" | "video" | "unknown";
+
+export type StorageObjectListItem = {
+  key: string;
+  bucket: MediaBucket;
+  mediaType: StorageMediaType;
+  size: number;
+  lastModified: string | null;
+  storedUrl: string;
+};
+
+function inferStorageMediaType(key: string): StorageMediaType {
+  const normalized = key.toLowerCase();
+  const ext = normalized.split(".").pop() ?? "";
+
+  if (
+    normalized.startsWith("audio/") ||
+    ["mp3", "wav", "flac", "ogg", "aac", "m4a", "aiff", "opus"].includes(ext)
+  ) {
+    return "audio";
+  }
+
+  if (
+    normalized.startsWith("video/") ||
+    ["mp4", "mov", "webm", "avi", "mkv", "m3u8"].includes(ext)
+  ) {
+    return "video";
+  }
+
+  if (
+    ["jpg", "jpeg", "png", "webp", "gif", "avif", "heic", "heif"].includes(ext)
+  ) {
+    return "image";
+  }
+
+  return "unknown";
+}
+
 export async function listSingerStorageObjects(
   singerId: string,
 ): Promise<SingerStorageObject[]> {
@@ -283,4 +321,78 @@ export async function listSingerStorageObjects(
   });
 
   return out;
+}
+
+export async function listStorageObjects(params?: {
+  buckets?: MediaBucket[];
+  prefixes?: string[];
+  limit?: number;
+  mediaTypes?: StorageMediaType[];
+}): Promise<StorageObjectListItem[]> {
+  const buckets: MediaBucket[] = params?.buckets?.length
+    ? params.buckets
+    : ["public", "private"];
+  const rawPrefixes = params?.prefixes?.length ? params.prefixes : [""];
+  const prefixes = rawPrefixes.map((prefix) => trimSlashes(prefix));
+  const limit = Math.min(Math.max(params?.limit ?? 200, 1), 1000);
+  const mediaFilter = params?.mediaTypes?.length ? new Set(params.mediaTypes) : null;
+
+  const result: StorageObjectListItem[] = [];
+  const seen = new Set<string>();
+
+  for (const bucket of buckets) {
+    if (result.length >= limit) break;
+
+    for (const prefix of prefixes) {
+      if (result.length >= limit) break;
+
+      let continuationToken: string | undefined;
+      do {
+        const response = await s3.send(
+          new ListObjectsV2Command({
+            Bucket: getBucketName(bucket),
+            Prefix: prefix || undefined,
+            ContinuationToken: continuationToken,
+            MaxKeys: Math.min(1000, limit),
+          }),
+        );
+
+        for (const obj of response.Contents ?? []) {
+          if (!obj.Key || obj.Key.endsWith("/")) continue;
+
+          const key = trimSlashes(obj.Key);
+          const uniqueId = `${bucket}:${key}`;
+          if (seen.has(uniqueId)) continue;
+
+          const mediaType = inferStorageMediaType(key);
+          if (mediaFilter && !mediaFilter.has(mediaType)) continue;
+
+          seen.add(uniqueId);
+          result.push({
+            key,
+            bucket,
+            mediaType,
+            size: typeof obj.Size === "number" ? obj.Size : 0,
+            lastModified: obj.LastModified ? obj.LastModified.toISOString() : null,
+            storedUrl: `${bucket}://${key}`,
+          });
+
+          if (result.length >= limit) break;
+        }
+
+        continuationToken =
+          response.IsTruncated && result.length < limit
+            ? response.NextContinuationToken
+            : undefined;
+      } while (continuationToken);
+    }
+  }
+
+  result.sort((a, b) => {
+    const ta = a.lastModified ? Date.parse(a.lastModified) : 0;
+    const tb = b.lastModified ? Date.parse(b.lastModified) : 0;
+    return tb - ta;
+  });
+
+  return result.slice(0, limit);
 }

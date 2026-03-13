@@ -291,6 +291,8 @@ export default function HomepageHeroManager() {
                               : slide.posterObjectKey,
                           })
                         }
+                        storageBuckets={["public"]}
+                        storagePrefixes={["homepage/hero/", "media/"]}
                         hint="Video se nahraje jako private master. Backend z něj připraví poster, fallback MP4 a adaptivní stream."
                       />
                       {!slide.mediaObjectKey ? (
@@ -317,6 +319,8 @@ export default function HomepageHeroManager() {
                             mediaError: state.error ?? null,
                           })
                         }
+                        storageBuckets={["public"]}
+                        storagePrefixes={["homepage/hero/", "media/", "covers/", "posts/", "stories/", "avatars/"]}
                         uploadPath={`homepage/hero/${slide.id}/image-${Date.now()}.jpg`}
                         hint="Nahraje se private master a worker z něj připraví public display.webp + thumb.webp."
                       />

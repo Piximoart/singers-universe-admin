@@ -187,6 +187,13 @@ export default function EditTrackPage() {
             isPrivate={true}
             uploadEnabled={!!form.singer_id}
             uploadLockReason="Nejdřív vyberte zpěváka / influencera."
+            storageBuckets={["private"]}
+            storageMediaTypes={form.media_type === "video" ? ["video"] : ["audio"]}
+            storagePrefixes={
+              form.singer_id
+                ? [`${form.media_type === "video" ? "video" : "audio"}/${form.singer_id}/`]
+                : []
+            }
           />
           <ImageUpload label="Cover obrázek" currentUrl={form.cover_url} onUpload={(url) => set("cover_url", url)} uploadPath={`covers/${form.slug}-cover.jpg`} />
         </div>

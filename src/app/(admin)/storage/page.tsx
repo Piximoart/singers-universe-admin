@@ -19,10 +19,23 @@ type StorageItem = {
   previewUrl: string | null;
 };
 
-const DEFAULT_PREFIX_BY_TYPE: Record<MediaType, string> = {
-  image: "media/images",
-  video: "media/videos",
-  audio: "audio/uploads",
+type PrefixOption = { value: string; label: string };
+
+const PREFIX_OPTIONS: Record<MediaType, PrefixOption[]> = {
+  image: [
+    { value: "homepage/hero", label: "homepage/hero" },
+    { value: "posts", label: "posts" },
+    { value: "stories", label: "stories" },
+    { value: "covers", label: "covers" },
+    { value: "avatars", label: "avatars" },
+  ],
+  video: [
+    { value: "homepage/hero", label: "homepage/hero" },
+    { value: "video", label: "video" },
+  ],
+  audio: [
+    { value: "audio", label: "audio" },
+  ],
 };
 
 function trimSlashes(value: string) {
@@ -86,17 +99,19 @@ export default function StoragePage() {
 
   const [uploadType, setUploadType] = useState<MediaType>("image");
   const [uploadBucket, setUploadBucket] = useState<Bucket>("public");
-  const [uploadPrefix, setUploadPrefix] = useState(DEFAULT_PREFIX_BY_TYPE.image);
+  const [uploadPrefix, setUploadPrefix] = useState(PREFIX_OPTIONS.image[0].value);
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState("");
   const [uploadResult, setUploadResult] = useState("");
   const fileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    setUploadPrefix((current) =>
-      current.trim() ? current : DEFAULT_PREFIX_BY_TYPE[uploadType],
-    );
+    setUploadPrefix(PREFIX_OPTIONS[uploadType][0].value);
     if (uploadType === "image") {
+      setUploadBucket("public");
+    } else if (uploadType === "audio") {
+      setUploadBucket("private");
+    } else if (uploadType === "video") {
       setUploadBucket("public");
     }
   }, [uploadType]);
@@ -236,12 +251,17 @@ export default function StoragePage() {
 
           <label className="space-y-1.5 text-sm md:col-span-2">
             <span className="text-sub">Prefix / složka</span>
-            <input
+            <select
               value={uploadPrefix}
               onChange={(event) => setUploadPrefix(event.target.value)}
-              className="w-full rounded-md border border-white/10 bg-s2 px-3 py-2 text-white placeholder:text-sub focus:border-lime focus:outline-none"
-              placeholder={DEFAULT_PREFIX_BY_TYPE[uploadType]}
-            />
+              className="w-full rounded-md border border-white/10 bg-s2 px-3 py-2 text-white focus:border-lime focus:outline-none"
+            >
+              {PREFIX_OPTIONS[uploadType].map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
           </label>
         </div>
 

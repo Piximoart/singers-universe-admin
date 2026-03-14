@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
-import { verifySession, COOKIE_NAME } from "@/lib/auth";
+import { COOKIE_NAME } from "@/lib/auth";
 
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
@@ -24,16 +24,6 @@ export async function proxy(request: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
     return NextResponse.redirect(new URL("/login", request.url));
-  }
-
-  const session = await verifySession(token);
-  if (!session) {
-    if (isApiRoute) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-    const response = NextResponse.redirect(new URL("/login", request.url));
-    response.cookies.delete(COOKIE_NAME);
-    return response;
   }
 
   return NextResponse.next();

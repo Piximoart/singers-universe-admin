@@ -1,36 +1,12 @@
-import { supabaseAdmin } from "@/lib/supabase";
+"use client";
 
-export const dynamic = "force-dynamic";
+import { useEffect, useState } from "react";
 
 interface UserRow {
   id: string;
   email: string;
   created_at: string;
   tier: string;
-}
-
-async function getUsers(): Promise<UserRow[]> {
-  try {
-    // Načteme Supabase Auth uživatele
-    const { data: authData } = await supabaseAdmin.auth.admin.listUsers();
-    const authUsers = authData?.users ?? [];
-
-    // Načteme subscriptions
-    const { data: subs } = await supabaseAdmin
-      .from("user_subscriptions")
-      .select("user_id, tier");
-
-    const subMap = new Map((subs ?? []).map((s) => [s.user_id, s.tier]));
-
-    return authUsers.map((u) => ({
-      id: u.id,
-      email: u.email ?? "—",
-      created_at: u.created_at,
-      tier: subMap.get(u.id) ?? "listener",
-    }));
-  } catch {
-    return [];
-  }
 }
 
 function TierBadge({ tier }: { tier: string }) {
@@ -50,8 +26,30 @@ function TierBadge({ tier }: { tier: string }) {
   );
 }
 
-export default async function UsersPage() {
-  const users = await getUsers();
+export default function UsersPage() {
+  const [users, setUsers] = useState<UserRow[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadUsers = async () => {
+      try {
+        const response = await fetch("/api/users", { cache: "no-store" });
+        if (!response.ok) return;
+        const payload = (await response.json()) as { items?: UserRow[] };
+        if (!cancelled) {
+          setUsers(Array.isArray(payload.items) ? payload.items : []);
+        }
+      } catch {
+        if (!cancelled) setUsers([]);
+      }
+    };
+
+    void loadUsers();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   return (
     <div>

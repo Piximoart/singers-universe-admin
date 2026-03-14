@@ -1,42 +1,10 @@
-import { NextRequest, NextResponse } from "next/server";
-import { requireAdminApiSession } from "@/lib/apiAuth";
-import { supabaseAdmin } from "@/lib/supabase";
+import { NextRequest } from "next/server";
+import { proxyAdminRequest } from "@/lib/adminBackendProxy";
 
 export async function GET(request: NextRequest) {
-  const auth = await requireAdminApiSession(request);
-  if (!auth.ok) return auth.response;
-
-  const singerId = request.nextUrl.searchParams.get("singerId")?.trim() || "";
-
-  let query = supabaseAdmin
-    .from("albums")
-    .select("*, singers(stage_name, slug)")
-    .order("release_date", { ascending: false });
-
-  if (singerId) {
-    query = query.eq("singer_id", singerId);
-  }
-
-  const { data, error } = await query;
-
-  if (error)
-    return NextResponse.json({ error: error.message }, { status: 500 });
-  return NextResponse.json({ items: data });
+  return proxyAdminRequest(request);
 }
 
 export async function POST(request: NextRequest) {
-  const auth = await requireAdminApiSession(request);
-  if (!auth.ok) return auth.response;
-
-  const body = await request.json();
-
-  const { data, error } = await supabaseAdmin
-    .from("albums")
-    .insert(body)
-    .select()
-    .single();
-
-  if (error)
-    return NextResponse.json({ error: error.message }, { status: 400 });
-  return NextResponse.json({ album: data }, { status: 201 });
+  return proxyAdminRequest(request);
 }
